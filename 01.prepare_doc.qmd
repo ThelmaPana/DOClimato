@@ -1,0 +1,110 @@
+---
+title: "Prepare environmental data from GLODAP"
+subtitle: "Read raw data (env & DOC) and format it nicely."
+author: "Thelma Panaïotis, Laetitia Drago & Jean-Olivier Irisson"
+format:
+  html:
+    toc: true
+    embed-resources: true
+editor: visual
+execute:
+  cache: false
+  warning: false
+---
+
+```{r set_up}
+#| output: false
+#| warning: false
+#| cache: false
+source("utils.R")
+```
+
+## Read data
+
+Keep data between 0 and 10 meters.
+
+```{r read_doc}
+#|warning: false
+# Read a first time to get column names
+columns <- read_excel(
+    "data/raw/0227166/4.4/data/0-data/All_Basins_Data_Merged_Hansell_2022.xlsx", 
+    n_max = 0
+  ) %>% 
+  colnames() %>% 
+  tolower()
+
+# Read a second time to get the data with the proper column names
+df_doc <- read_excel(
+    "data/raw/0227166/4.4/data/0-data/All_Basins_Data_Merged_Hansell_2022.xlsx",
+    skip = 2, 
+    col_names = columns
+  )
+
+# Select useful columns
+df_doc <- df_doc %>%
+  select(
+    bottle, bottle_flag_w,
+    lon = longitude, lat = latitude, date,
+    press = `ctd pressure`,
+    doc, doc_flag_w
+  ) %>%
+  mutate(date = ymd(date)) # warning because some dates are missing
+
+# Keep only observations in the 0-10 m range
+df_doc <- df_doc %>% filter(between(press, 0, 10))
+```
+
+## Clean
+
+Remove aberrant doc observations (flag = 9, negative values…).
+
+```{r clean_doc}
+df_doc <- df_doc %>%
+  filter(doc_flag_w != 9) %>% # flag is ok
+  filter(doc > 0) %>% # doc is positive
+  drop_na(doc) # drop missing values
+```
+
+## Average by pixel across the layer
+
+```{r avg_doc}
+df_doc <- df_doc %>%
+  mutate(
+    # floor and add 0.5 because other env data are on the centre of each pixel
+    lon = roundp(lon, precision = 1, f = floor) + 0.5,
+    lat = roundp(lat, precision = 1, f = floor) + 0.5
+  ) %>%
+  group_by(lon, lat) %>%
+  summarise(
+    # compute mean and sd
+    doc_mean = mean(doc),
+    doc_sd = sd(doc),
+    n_obs = n()
+  ) %>%
+  ungroup()
+```
+
+Let’s plot some maps.
+
+```{r doc_maps}
+# Number of observations
+ggmap(df_doc, "n_obs", type = "point") +
+  ggplot2::scale_colour_viridis_c(option = "cividis", trans = "log10", direction = -1) +
+  ggtitle("Number of observations")
+
+# DOC mean
+ggmap(df_doc, "doc_mean", type = "point") + 
+  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10") +
+  ggtitle("DOC mean")
+
+# DOC sd
+ggmap(df_doc, "doc_sd", type = "point") + 
+  ggplot2::scale_colour_viridis_c() +
+  ggtitle("DOC sd")
+```
+
+## Save DOC data
+
+```{r save}
+save(df_doc, df_doc, file = "data/01.doc_data.Rdata")
+```

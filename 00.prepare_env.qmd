@@ -1,0 +1,618 @@
+---
+title: "Prepare environmental data from GLODAP"
+subtitle: "Read raw data (env & DOC) and format it nicely."
+author: "Thelma Panaïotis, Laetitia Drago & Jean-Olivier Irisson"
+format:
+  html:
+    toc: true
+    embed-resources: true
+editor: visual
+execute:
+  cache: false
+  warning: false
+---
+
+```{r set_up}
+#| output: false
+#| warning: false
+#| cache: false
+source("utils.R")
+```
+
+## GLODAP
+
+Read one file to get dimensions.
+
+```{r prep_read}
+# List of files
+files <- list.files("data/raw/GLODAPv2.2016b_MappedClimatologies", pattern = ".nc", full.names = TRUE)
+# List of var names from files
+vars <- str_extract(files, "((?<=2016b\\.).+)(.(?=.nc))")
+
+# Open one file to get dimensions
+nc <- nc_open(files[1])
+lon <- ncvar_get(nc, "lon")
+rank_lon <- rank(lon) # rank of longitudes to reorganise
+lat <- ncvar_get(nc, "lat")
+depth <- ncvar_get(nc, "Depth")
+# Get indexes of relevant depth
+depth_idx <- which(depth <= max_depth_woa)
+# Limit depth to chosen max depth
+depth <- ncvar_get(nc, "Depth", count = max(depth_idx))
+# Number of depth values
+depth_count <- max(depth_idx)
+# Close the file
+nc_close(nc)
+
+
+# Read all files in parallel
+glodap <- mclapply(files, function(file) {
+  
+  # get variable name from file
+  var <- str_extract(file, "((?<=2016b\\.).+)(.(?=.nc))")
+  
+  # open, read, close
+  nc <- nc_open(file)
+  block <- ncvar_get(nc, varid = var, count = c(360, 180, depth_count))
+  nc_close(nc)
+  
+  # reorder longitudes to centre on Greenwidch
+  block <- block[c(rank_lon[lon>180], rank_lon[lon<=180]),,]
+  
+  return(block)
+}, mc.cores = min(length(files), n_cores))
+
+# Add variable names, not using original names
+names(glodap) <- c("nitrate", "oxygen", "phosphate", "salinity", "silicate", "alkalinity", "dic", "temperature")
+
+# Correct longitudes from [20.5:379.5] to [-179.5:179.5]
+lon <- ifelse(lon > 360, lon - 360, lon) %>% sort()
+lon <- lon - 180
+```
+
+Plot surface values
+
+```{r plot_surf}
+image.plot(glodap$temperature[,,1], col = col_temp, main = "Temperature")
+image.plot(glodap$salinity[,,1], col = col_sal, main = "Salinity")
+image.plot(glodap$oxygen[,,1], col = col_oxy, main = "Oxygen")
+image.plot(glodap$nitrate[,,1], col = col_nit, main = "Nitrate")
+image.plot(glodap$phosphate[,,1], col = col_phos, main = "Phosphate")
+image.plot(glodap$silicate[,,1], col = col_sil, main = "Silicate")
+image.plot(glodap$alkalinity[,,1], col = col_alk, main = "Alkalinity")
+image.plot(glodap$dic[,,1], col = col_dic, main = "DIC")
+```
+
+### MLD and pycnocline
+
+#### Density from T and S
+
+```{r comp_dens}
+# Compute pressure rather than depth
+press <- array(NA, dim = dim(glodap$temperature)[1:3])
+
+# compute for one longitude
+for (j in seq(along = lat)) {
+  press[1,j,] <- swPressure(depth[1:depth_count], latitude = lat[j])
+}
+# replicate for all longitudes
+for (i in seq(along = lon)) {
+  press[i,,] <- press[1,,]
+}
+
+# derive potential density anomaly using oce package
+dens <- array(NA, dim = dim(glodap$temperature)[1:3])
+for (i in seq(along = lon)) {
+  for (j in seq(along = lat)) {
+    dens[i,j,] <- swSigma0(
+      glodap$salinity[i,j,],
+      glodap$temperature[i,j,],
+      press[i,j,], lon[i], lat[j]
+      )
+  }
+}
+glodap$density <- dens
+```
+
+Plot surface density in  Jan.
+
+```{r plot_dens}
+image.plot(glodap$density[,,1], col = col_dens, main = "Density")
+```
+
+#### Density clines
+
+For this, we use data down to `r max_depth_woa` metres.
+
+Let’s start by just selecting a few profiles, compute both MLD and pycnocline and plot them.
+
+```{r test_dens_clines}
+# Select profiles regurlarly spaced in lon
+sub <- data.frame()
+for (y in c(30, 60, 90, 120, 170)) {
+    sub <- bind_rows(sub, data.frame(dens = glodap$density[50,y,], y = y))
+}
+
+# Compute clines for these profiles
+ssub <- sub %>%
+  # group by lon and month
+  group_by(y) %>%
+  do({
+    d <- .$dens # get density
+    ok <- !is.na(d) # drop NAs
+    # sequence of regular depth for interpolation
+    depths_i <- seq(0, max_depth_woa, by = 5) 
+    # interpolate density on these depths
+    dens_i <- interpolate(depth[ok], d[ok], depths_i, method = "spline", extrapolate=FALSE)
+    # compute pycnocline, i.e. maximum variance using a moving window
+    pyc <- clined(dens_i, depths_i, n.smooth = 2, k = 4)
+    # compute MLD
+    mld <- mld(dens_i, depths_i, ref.depths = 0:15, n.smooth = 2, k = 4)
+    # store all this in a dataframe
+    data.frame(depth = depths_i, dens = dens_i, pyc = pyc, mld = mld, id = str_c(.$y[1]))
+})
+
+# Plots results
+ggplot(ssub) +
+  geom_path(aes(x = dens, y = -depth)) +
+  geom_hline(aes(yintercept = -pyc), data = distinct(ssub, id, pyc), colour="red") +
+  geom_hline(aes(yintercept = -mld), data = distinct(ssub, id, mld), colour="blue") +
+  facet_wrap(~id)
+```
+
+The pycnocline seems more appropriate than the MLD, but let’s compute both for all profiles.
+
+```{r clines_dens}
+# for each pixel of each month, interpolate density over depth and derive pycnocline depth
+depths_i <- seq(0, max_depth_woa, by = 5)
+
+clines <- mclapply(1:length(lon), function(l){
+  apply(glodap$density[l,,], 1, function(dens){
+    ok <- !is.na(dens)
+
+      if (sum(ok) > 3) {
+      # interpolate density on 5 m steps
+      dens_i <- castr::interpolate(depth[ok], dens[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute pycnocline and MLD
+      ok <- !is.na(dens_i)
+      pyc <- clined(dens_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+      mld <- mld(dens_i, depths_i, ref.depths = 0:15, n.smooth = 2, k = 4)
+    } else {
+      pyc <- NA
+      mld <- NA
+    }
+    return(c(pyc = pyc, mld = mld))
+  })
+  
+}, mc.cores = n_cores)
+
+# Retrieve pyc and mld from result
+pyc <- lapply(clines, function(l){l[1,]})
+mld <- lapply(clines, function(l){l[2,]})
+
+# Bind lists together
+pyc <- do.call(rbind, pyc)
+mld <- do.call(rbind, mld)
+
+# Smooth the result
+pyc <- image.smooth(pyc, theta = 1)$z
+mld <- image.smooth(mld, theta = 1)$z
+
+# Plot
+image(pyc, col = col_depth, main = "Pycnocline")
+image(mld, col = col_depth, main = "MLD")
+```
+
+We should also check the distribution of these values.
+
+```{r hist_clines}
+hist(pyc, breaks = 100, main = "Pycnocline")
+hist(mld, breaks = 100, main = "MLD")
+```
+
+Seems to have lots of artefacts near the surface with MLD computation. Below we will try the MLD climatology from Argo Mixed Layers.
+
+### Nutriclines
+
+Let’s now compute clines for nitrates, phosphates and silicates.
+
+#### Nitrates
+
+```{r nitracline}
+# parallel across lon
+n_cline <- mclapply(1:length(lon), function(l){
+  apply(glodap$nitrate[l,,], 1, function(nit){
+    ok <- !is.na(nit)
+
+      if (sum(ok) > 3) {
+      # interpolate on 5 m steps
+      nit_i <- castr::interpolate(depth[ok], nit[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute cline
+      ok <- !is.na(nit_i)
+      cline <- clined(nit_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+    } else {
+      cline <- NA
+    }
+    return(cline)
+  })
+  
+}, mc.cores = n_cores)
+
+# Bind lists
+n_cline <- do.call(rbind, n_cline)
+
+# Smooth
+n_cline <- image.smooth(n_cline, theta = 1)$z
+
+# Plot
+image(n_cline, col = col_depth, main = "Nitracline")
+```
+
+#### Phosphates
+
+```{r phosphacline}
+# parallel across lon
+p_cline <- mclapply(1:length(lon), function(l){
+  apply(glodap$phosphate[l,,], 1, function(phos){
+    ok <- !is.na(phos)
+
+      if (sum(ok) > 3) {
+      # interpolate on 5 m steps
+      phos_i <- castr::interpolate(depth[ok], phos[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute cline
+      ok <- !is.na(phos_i)
+      cline <- clined(phos_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+    } else {
+      cline <- NA
+    }
+    return(cline)
+  })
+  
+}, mc.cores = n_cores)
+
+# Bind lists
+p_cline <- do.call(rbind, p_cline)
+
+# Smooth
+p_cline <- image.smooth(p_cline, theta = 1)$z
+
+# Plot
+image(p_cline, col = col_depth, main = "Phosphacline")
+```
+
+#### Silicates
+
+```{r silicacline}
+# parallel across lon
+s_cline <- mclapply(1:length(lon), function(l){
+  apply(glodap$silicate[l,,], 1, function(sil){
+    ok <- !is.na(sil)
+
+      if (sum(ok) > 3) {
+      # interpolate on 5 m steps
+      sil_i <- castr::interpolate(depth[ok], sil[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute cline
+      ok <- !is.na(sil_i)
+      cline <- clined(sil_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+    } else {
+      cline <- NA
+    }
+    return(cline)
+  })
+  
+}, mc.cores = n_cores)
+
+# Bind lists
+s_cline <- do.call(rbind, s_cline)
+
+# Smooth
+s_cline <- image.smooth(s_cline, theta = 1)$z
+
+# Plot
+image(s_cline, col = col_depth, main = "Silicacline")
+```
+
+### Average over surface layer
+
+For each variable, compute the average in the surface layer, i.e. from `r min(depth)` to `r layer_bottom` m.
+
+```{r avg_surf}
+env <- mclapply(names(glodap), function(var) {
+  message(var)
+
+  # extract variable
+  X <- glodap[[var]]
+
+  # prepare storage
+  res <- array(NA, dim(X)[-3])
+
+  # for each pixel of each month
+  for (i in seq(along = lon)) {
+    for (j in seq(along = lat)) {
+        # compute average if 2/3 of data is present
+        keep <- X[i, j, depth <= layer_bottom]
+        if (percent_na(keep) <= 1/3) {
+          res[i, j] <- mean(keep, na.rm=TRUE)
+         # otherwise just leave the NA value
+      }
+    }
+  }
+  return(res)
+}, mc.cores = min(length(vars), n_cores))
+
+# Add variable names
+names(env) <- names(glodap)
+```
+
+## MLD Argo Mixed Layers
+
+Let’s try data from Argo Mixed Layers: <http://mixedlayer.ucsd.edu/>.
+
+This data uses the same grid as WOA, we can combine them together.
+
+[TODO: which algorithm to use: density or threshold?]{style="color: red;"}
+
+```{r read_mld_argo}
+# Open one file to get all coordinates (lon, lat, depth)
+nc <- nc_open("data/raw/mld/Argo_mixedlayers_monthlyclim_04142022.nc")
+
+# Get lon and lat
+lon_arg <- ncvar_get(nc, "lon")
+lat_arg <- ncvar_get(nc, "lat")
+
+# Get MLD values
+mld_argo <- ncvar_get(nc, "mld_da_mean")
+
+# Close the file
+nc_close(nc)
+
+# Reorder dimensions
+mld_argo <- aperm(mld_argo, c(2,3,1))
+
+# Compute yearly from monthly
+mld_argo <- apply(mld_argo, c(1,2), mean, na.rm = TRUE)
+
+# Smooth
+#mld_argo <- image.smooth(mld_argo, theta = 1)$z
+
+# Plot
+image.plot(mld_argo, col = col_depth)
+```
+
+This is better, we will clean inland data below.
+
+## Various climatologies
+
+### Misc
+
+Easy one: read the `.mat` file, reshape `lon` vs `lat` and reverse `lat`. The grid is already 1°×1°×12 months.
+
+::: {.callout-warning icon="false"}
+Check grid definition
+:::
+
+```{r clims_cael}
+npp <- read_clim("data/raw/clim4cael.mat", "cafes")
+image(npp, col = col_npp, main = "NPP (cafe)")
+
+z_eu <- read_clim("data/raw/clim4cael.mat", "z.eu")
+image(z_eu, col = col_depth, main = "Euphotic depth")
+
+bbp <- read_clim("data/raw/clim4cael.mat", "bbp")
+image(bbp, col = col_bbp, main = "BBP")
+
+fmicro <- read_clim("data/raw/clim4cael.mat", "fmicro")
+image(fmicro, col = col_fmicro, main = "Fmicro")
+
+log_chl <- read_clim("data/raw/clim4cael.mat", "logChl")
+image(log_chl, col = col_chl, main = "log(Chl)")
+
+pic <- read_clim("data/raw/picpoc.mat", "pic")
+image(pic, col = col_pic, main = "PIC")
+
+#poc <- read_clim("data/raw/picpoc.mat", "poc")
+#image(poc, col = col_poc, main = "POC")
+
+psd <- read_clim("data/raw/PSD_slope.mat", "Xi")
+image(psd, col = col_psd, main = "Phyto PSD slope")
+```
+
+### Irradiance data
+
+Climatology data in 12 netcdf files. Raw resolution is very high and needs to be downgraded to a 1°×1° grid.
+
+Let’s start by just reading 1 file to get the dimensions of the grid.
+
+```{r read_1_par}
+# Open one file to get all coordinates (lon, lat)
+nc <- nc_open("data/raw/modis/AQUA_MODIS.20020701_20210731.L3m.MC.PAR.par.9km.nc")
+lon_par <- ncvar_get(nc, "lon")
+lat_par <- ncvar_get(nc, "lat")
+lat_par <- rev(lat_par) # lat will need to be reversed
+nc_close(nc)
+```
+
+Now let’s read all files.
+
+```{r read_all_par}
+# List par files
+par_files <- list.files("data/raw/modis", full.names = TRUE, pattern = ".nc")
+
+# Initiate empty storage for PAR
+par <- array(NA, c(length(lon_par), length(lat_par), 12))
+
+# Loop over months
+for(m in 1:12){
+  # open nc file
+  nc <- nc_open(par_files[m])
+  # read par values for a given month
+  par_m <- ncvar_get(nc, "par")
+  # reorder latitudes
+  par[,,m] <- par_m[, ncol(par_m):1]
+  # close file
+  nc_close(nc)
+}
+
+# From monthly to yearly, parallel on longitude
+par <- mclapply(1:dim(par)[1], function(l){
+  par_l <- par[l,,]
+  apply(par_l, 1, mean, na.rm = TRUE)
+}, mc.cores = n_cores)
+
+par <- do.call(rbind, par)
+```
+
+PAR values are stored in a `r dim(par)[1]` by `r dim(par)[2]` by `r dim(par)[3]`array. To downgrade the grid, we first need to convert this data to a dataframe. Let’s process in parallel by month. For each month, floor `lon` and `lat` to 1° and add 0.5 to get the center of every pixel of the 1°×1° grid, then average PAR value per grid cell.
+
+```{r downgrade_par}
+dimnames(par) <- list(lon_par, lat_par)
+# melt to dataframe
+df_par <- reshape2::melt(par) %>%
+  as_tibble() %>%
+  rename(lon = Var1, lat = Var2, par = value)
+  
+# Round lon and lat to 1 degree and average per grid cell
+df_par <- df_par %>%
+  mutate(
+    lon = roundp(lon, precision = 1, f = floor) + 0.5,
+    lat = roundp(lat, precision = 1, f = floor) + 0.5
+  ) %>%
+  group_by(lon, lat) %>%
+  summarise(par = mean(par, na.rm = TRUE)) %>%
+  ungroup()
+
+# Plot map
+ggmap(df_par, "par", type = "raster")
+```
+
+## Combine all env variables
+
+Let’s combine array formatted env variables together, i.e. all variables except for PAR data.
+
+```{r combine}
+# Pycnocline and MLD
+env$pyc <- pyc
+env$mld <- mld
+env$mld_argo <- mld_argo
+
+# Nutriclines
+env$n_cline <- n_cline
+env$p_cline <- p_cline
+env$s_cline <- s_cline
+
+# Other climatologies
+env$z_eu    <- z_eu
+env$npp     <- npp
+env$bbp    <- bbp
+env$fmicro  <- fmicro
+env$log_chl <- log_chl
+env$pic     <- pic
+env$psd     <- psd
+
+
+# Clean dimnames
+dimnames(env$pyc)      <- NULL
+dimnames(env$mld)      <- NULL
+dimnames(env$mld_argo) <- NULL
+dimnames(env$n_cline)  <- NULL
+dimnames(env$p_cline)  <- NULL
+dimnames(env$s_cline)  <- NULL
+dimnames(env$z_eu)     <- NULL
+dimnames(env$npp)      <- NULL
+dimnames(env$bbp)      <- NULL
+dimnames(env$fmicro)   <- NULL
+dimnames(env$log_chl)  <- NULL
+dimnames(env$pic)      <- NULL
+dimnames(env$psd)      <- NULL
+```
+
+## Convert to dataframe
+
+```{r to_df}
+# unroll each matrix
+env_v <- lapply(env, function(e) { as.vector(e) })
+# combine as columns
+df_env <- do.call(cbind, env_v) %>% as.data.frame() %>% setNames(names(env_v))
+
+# add coordinates (NB: shorter elements are recycled automatically)
+df_env$lon <- lon
+df_env$lat <- rep(lat, each=length(lon))
+```
+
+Then join with PAR data.
+
+```{r join_par}
+df_env <- df_env %>% left_join(df_par, by = join_by(lon, lat))
+```
+
+Let’s do a quick plot to check everything is fine.
+
+```{r map_temp}
+ggmap(df_env, "temperature", type = "raster")
+```
+
+## Remove internal seas, lakes and land
+
+```{r inland}
+# determine which points are in land
+lons <- df_env$lon
+lats <- df_env$lat
+inland <- sp::point.in.polygon(lons, lats, coast$lon, coast$lat) == 1
+ggplot(df_env) +
+  geom_raster(aes(x = lon, y = lat, fill = inland)) +
+  scale_fill_viridis_d() +
+  scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  coord_quickmap()
+
+# remove South Pole
+inland[lats < -85] <- TRUE
+
+# remove Black Sea too
+inland[between(lons, 20, 50) & between(lats, 41, 50)] <- TRUE
+
+# remove Baltic Sea too
+inland[between(lons, 12, 30) & between(lats, 52, 66)] <- TRUE
+
+ggplot(df_env) +
+  geom_raster(aes(x = lon, y = lat, fill = inland)) +
+  scale_fill_viridis_d() +
+  scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  coord_quickmap()
+
+# blankout points in land
+df_env[inland, !names(df_env) %in% c("lon", "lat")] <- NA
+# NB: this works because `inland` gets automatically repeated for everymonth
+
+# Convert to tibble and reorder columns
+df_env <- df_env %>% as_tibble() %>% select(lon, lat, everything())
+```
+
+Plot a few maps without land to check.
+
+```{r maps_check}
+ggmap(df_env, "temperature", type = "raster", land = FALSE)
+ggmap(df_env, "par", type = "raster", land = FALSE)
+ggmap(df_env, "pyc", type = "raster", land = FALSE)
+ggmap(df_env, "mld_argo", type = "raster", land = FALSE)
+```
+
+Seems all good!
+
+## Save environmental data
+
+```{r save}
+save(df_env, file = "data/00.all_env.Rdata")
+```
+
+## Plot all maps
+
+```{r plot_all}
+# Names of env variables
+var_names <- df_env %>% select(-c(lon, lat)) %>% colnames()
+
+plot_list <- list()
+for (i in 1:length(var_names)){plot_list[[i]] <- ggmap(env, var_names[i], type = "raster")}
+
+plot_list
+
+```

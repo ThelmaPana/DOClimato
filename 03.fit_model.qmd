@@ -1,0 +1,379 @@
+---
+title: "Predict DOC from env data."
+subtitle: "Fit a XGBoost model to predict DOC from environmental data and apply it to new data."
+author: "Thelma Panaïotis"
+format:
+  html:
+    toc: true
+    embed-resources: true
+editor: visual
+execute:
+  cache: false
+  warning: false
+---
+
+## Set-up and load data
+
+```{r set_up}
+#|output: false
+source("utils.R")
+load("data/02.all_data.Rdata")
+df <- df_all
+
+output_filename <- "data/03.doc_from_env_nested_cv.Rdata"
+```
+
+## Data transformation
+
+Transform dataframe to sf object for spatial CV.
+
+```{r data_trans}
+df_sf <- st_as_sf(df, coords = c("lon", "lat"), crs = 4326)
+
+# Explanatory variables
+exp_vars <- df %>%
+  select(
+    temperature,
+    phosphate,
+    silicate,
+    alkalinity,
+    dic,
+    npp,
+    oxygen
+  ) %>%
+  colnames()
+```
+
+## Data split
+
+To better assess the performance of our model and get a distribution of R² instead of a single value, we will use nested cross-validation.
+
+Instead of splitting the data into train and test sets and get a single estimate of R² on the test set, we will use nested cross-validation so that we have several repeats of train/test splits and thus a distribution of R² values. For each fold, a second cross-validation is performed within the training set in order to tune the hyperparameters.
+
+We use 10-fold cross-validation:
+
+-   10% of data for testing
+
+-   90% of data for training. This subset is used for nested cross-validation with:
+
+    -   10% of data for validation
+
+    -   90% of data for learning
+
+Two different methods for data splitting are used:
+
+-   stratified on deciles of the response variable (`doc_log`)
+
+-   spatial cross-validation using blocks
+
+```{r split}
+set.seed(seed)
+# Bind together folds of both nested_cv
+folds <- bind_rows(
+  # Stratified CV on deciles of response variable
+  nested_cv(
+    df,
+    outside = vfold_cv(v = 10, strata = doc_log, breaks = 9),
+    inside = vfold_cv(v = 10, strata = doc_log, breaks = 9)) %>%
+    mutate(cv_type = "stratified"),
+  # Spatial CV
+  nested_cv(
+    df_sf,
+    outside = spatial_block_cv(v = 10),
+    inside = spatial_block_cv(v = 10)) %>%
+    mutate(cv_type = "spatial")
+)
+```
+
+## Model definition
+
+Let’s define a XGBoost regression model, with tunable hyperparameters:
+
+-   `trees`: number of trees
+
+-   `tree_depth`: maximum depth (i.e. number of splits) in a tree
+
+-   `min_n`: minimum number of objects in a node to split further
+
+-   `learn_rate`
+
+```{r def_mod}
+# Define a xgboost model with hyperparameters to tune
+xgb_spec <- boost_tree(
+  trees = tune(),
+  tree_depth = tune(),
+  min_n = tune(),
+  learn_rate = tune()
+) %>%
+  set_mode("regression") %>%
+  set_engine("xgboost")
+```
+
+We also generate the formula from the explanatory variables. We also keep doc for now, but it will be removed from predictors when generating the recipe within the gridsearch.
+
+```{r def_form}
+# Generate formula from list of explanatory variables
+xgb_form <- as.formula(paste("doc_log ~ ", paste(c("doc", exp_vars), collapse = " + "), sep = ""))
+```
+
+Finally, let’s define the grid for the gridsearch (only one grid is used for all folds).
+
+```{r def_grid}
+# Define one grid for all folds
+set.seed(seed)
+xgb_grid <- grid_latin_hypercube(
+  trees(),
+  learn_rate(),
+  tree_depth(),
+  min_n(),
+  size = 30
+)
+```
+
+## Models fitting
+
+Let’s loop on cv folds. For each fold, a gridsearch is performed using nested CV on training data, and performance are assessed on the test data. This is run in parallel on `r n_cores` cores.
+
+```{r gridsearch}
+res <- mclapply(1:nrow(folds), function(i){
+  ## Get fold
+  x <- folds[i,]
+
+  ## Train and test sets
+  df_train <- analysis(x$splits[[1]]) %>% as_tibble()
+  df_test <- assessment(x$splits[[1]]) %>% as_tibble()
+
+  ## Recipe
+  xgb_rec <- recipe(xgb_form, data = df_train) %>%
+    update_role(doc, new_role = "untransformed outcome")
+
+  ## Workflow
+  xgb_wflow <- workflow() %>%
+    add_recipe(xgb_rec) %>%
+    add_model(xgb_spec)
+
+
+  ## Gridsearch
+  set.seed(seed)
+  xgb_res <- tune_grid(
+    xgb_wflow,
+    resamples = x$inner_resamples[[1]],
+    grid = xgb_grid,
+    metrics = metric_set(rmse),
+    control = control_grid(save_pred = TRUE)
+  )
+  best_params <- select_best(xgb_res)
+
+  ## Final fit
+  final_xgb <- finalize_workflow(
+    xgb_wflow,
+    best_params
+  )
+  final_res <- fit(final_xgb, df_train)
+
+  ## Prediction on outer folds
+  preds <- predict(final_res, new_data = df_test) %>%
+    bind_cols(df_test %>% select(doc_log))
+
+  ## Model explainer
+  # Select only predictors
+  vip_train <- xgb_rec %>% prep() %>% bake(new_data = NULL, all_predictors())
+
+  # Explainer
+  xgb_explain <- explain_tidymodels(
+      model = extract_fit_parsnip(final_res),
+      data = vip_train,
+      y = df_train %>%  pull(doc_log),
+      verbose = FALSE
+    )
+
+  # Variable importance
+  full_vip <- model_parts(xgb_explain) %>%
+    bind_rows() %>%
+    filter(variable != "_baseline_")
+
+  # CP profiles
+  cp_profiles <- lapply(exp_vars, function(my_var){
+    model_profile(explainer = xgb_explain, variables = my_var)$cp_profiles %>% as_tibble()
+  }) %>%
+    bind_rows()
+
+  ## Return results
+  return(tibble(
+    preds = list(preds),
+    importance = list(full_vip),
+    cp_profiles = list(cp_profiles),
+    fold = x$id,
+    cv_type = x$cv_type))
+}, mc.cores = 10) %>%
+  bind_rows()
+```
+
+Save results
+
+```{r save}
+save(res, file = output_filename)
+```
+
+## Models evaluation
+
+### Rsquares
+
+```{r rsq}
+# Unnest predictions
+preds <- res %>% select(fold, cv_type, preds) %>% unnest(preds)
+
+# Compute Rsquare for each fold of each CV type
+rsquares <- preds %>%
+  group_by(cv_type, fold) %>%
+  rsq(truth = doc_log, estimate = .pred)
+
+# Distribution of Rsquares by CV type
+rsquares %>% split(.$cv_type) %>% map(summary)
+
+# Plot Rsquares values
+ggplot(rsquares) + 
+  geom_boxplot(aes(x = cv_type, y = .estimate, group = cv_type, colour = cv_type)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  labs(x = "CV type", y = "R²", colour = "CV type")
+```
+
+### Predictions VS truth
+
+Plot pred VS truth on the test part of each fold of each CV type.
+
+```{r pred_vs_truth_all}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 10
+#| fig-height: 8
+preds %>%
+  ggplot() +
+  geom_point(aes(x = doc_log, y = .pred, colour = cv_type)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red") +
+  coord_fixed() + 
+  facet_wrap(cv_type~fold)
+```
+
+Now let’s focus on a representative fold for each CV type.
+
+```{r pred_vs_truth_rep}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 8
+#| fig-height: 4
+# Find the one closer to the median and plot it
+repres_fold <- rsquares %>%
+  group_by(cv_type) %>%
+  mutate(diff = abs(.estimate - median(.estimate))) %>%
+  filter(diff == min(diff)) %>%
+  slice_head(n = 1)
+
+repres_fold %>%
+  select(cv_type, fold) %>%
+  left_join(preds, by = join_by(cv_type, fold)) %>%
+  ggplot() +
+  geom_point(aes(x = doc_log, y = .pred, colour = cv_type)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red") +
+  coord_fixed() + 
+  labs(title = "Pred VS truth for a representative fold") +
+  facet_grid(~cv_type)
+```
+
+### Variable importance
+
+Variable importance for each fold of each CV type.
+
+```{r var_imp_all}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 8
+#| fig-height: 10
+# Unnest variable importance
+full_vip <- res %>%
+  select(cv_type, fold, importance) %>%
+  unnest(importance) %>%
+  mutate(variable = forcats::fct_reorder(variable, dropout_loss))
+
+# Variable importance across folds
+full_vip %>%
+  filter(variable != "_full_model_") %>%
+  ggplot() +
+  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
+  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
+  labs(x = "RMSE after permutations") +
+  facet_grid(fold~cv_type)
+```
+
+Now let’s take the mean across folds of each CV type.
+
+```{r var_imp_mean}
+full_vip %>%
+  filter(variable != "_full_model_") %>%
+  group_by(cv_type, fold, variable) %>%
+  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>%
+  ggplot() +
+  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
+  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
+  labs(x = "Mean RMSE after permutations across CV folds")
+```
+
+### Partial dependence plots
+
+Finally, let’s have a look at partial dependence plots.
+
+-   blue line: prediction mean across *cp* profiles
+
+-   grey ribbon: prediction sd across centered *cp* profiles
+
+```{r pdp}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 8
+#| fig-height: 8
+# Variables for which to plot pdp
+n_pdp <- 3
+vars_pdp <- full_vip %>%
+  filter(variable != "_full_model_") %>%
+  mutate(variable = as.character(variable)) %>%
+  group_by(cv_type, variable) %>%
+  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>%
+  arrange(desc(dropout_loss)) %>%
+  group_by(cv_type) %>%
+  slice_head(n = n_pdp)
+
+# Unnest cp_profiles
+cp_profiles <- res %>% select(cv_type, fold, cp_profiles) %>% unnest(cp_profiles)
+
+# plots
+pdp_plots <- lapply(1:nrow(vars_pdp), function(i){
+  # Get variable and fold to plot
+  x <- vars_pdp[i, ]
+
+  cp_profiles %>%
+    # filter for given fold and variable
+    filter(cv_type == x$cv_type & `_vname_` == x$variable) %>%
+    # center each cp profiles across fold, variable and ids
+    group_by(fold, `_vname_`, `_ids_`) %>%
+    mutate(yhat_cent = `_yhat_` - mean(`_yhat_`)) %>% # center cp profiles
+    ungroup() %>%
+    # compute mean and sd of centered cp profiles for each fold and value of the variable of interest
+    group_by(fold, across(all_of(x$variable))) %>%
+    summarise(
+      yhat_loc = mean(`_yhat_`), # compute mean of profiles
+      yhat_spr = sd(yhat_cent), # compute sd of cp profiles
+      .groups = "keep"
+    ) %>%
+    ungroup() %>%
+    # sort by increasing value of variable of interest
+    arrange(across(all_of(x$variable))) %>%
+    # rename
+    setNames(c("fold", "x", "yhat_loc", "yhat_spr")) %>%
+    ggplot() +
+    geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), fill = "gray80", alpha = 0.5) +
+    geom_path(aes(x = x, y = yhat_loc), color = "midnightblue", linewidth = 1.2) +
+    labs(x = x$variable, title = paste("PDP for", x$variable), subtitle = paste(x$cv_type, "cross-validation")) +
+    facet_wrap(~fold, ncol = 2)
+})
+pdp_plots
+```
