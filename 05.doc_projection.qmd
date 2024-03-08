@@ -1,0 +1,23 @@
+---
+title: "Generate projections of DOC."
+subtitle: "Apply the model to new environmental data to get a world map of POC projections."
+author: "Thelma Panaïotis"
+format:
+  html:
+    toc: true
+    embed-resources: true
+editor: visual
+execute:
+  cache: false
+  warning: false
+---
+
+## Set-up and load data
+
+```{r set-up}
+#|output: false
+source("utils.R")
+load("data/03.doc_from_env_nested_cv.Rdata")
+```
+
+## 

@@ -106,5 +106,5 @@ ggmap(df_doc, "doc_sd", type = "point") +
 ## Save DOC data
 
 ```{r save}
-save(df_doc, df_doc, file = "data/01.doc_data.Rdata")
+save(df_doc, file = "data/01.doc_data.Rdata")
 ```

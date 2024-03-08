@@ -20,36 +20,25 @@ Load data
 ```{r load}
 load("data/00.all_env.Rdata")
 load("data/01.doc_data.Rdata")
-df_env <- env
 ```
 
 Join env and DOC data.
 
 ```{r join}
-df_all <- df_env %>%
-  select(
-    lon, lat, 
-    temperature,
-    phosphate,
-    silicate,
-    alkalinity,
-    dic,
-    npp,
-    oxygen
-  ) %>% 
-  drop_na() %>% # drop missing env data
-  left_join(df_doc %>% select(lon, lat, doc = doc_mean), by = join_by(lon, lat)) %>% 
-  drop_na(doc) # drop missing doc data
+df_all <- df_env %>% 
+  #drop_na() %>% # drop missing env data
+  left_join(df_doc %>% select(lon, lat, doc = doc_mean), by = join_by(lon, lat)) #%>% 
+  #drop_na(doc) # drop missing doc data
 ```
+
+Plot some maps.
 
 ```{r}
 ggmap(df_env, var = "oxygen", type = "raster") +
-  geom_point(data = df_all, aes(x = lon, y = lat), size = 0.5)
-```
+  geom_point(data = df_all %>% filter(!is.na(doc)), aes(x = lon, y = lat), size = 0.5)
 
-```{r}
 ggmap(df_all, var = "doc", type = "point") + 
-  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10")
+  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10", na.value = NA)
 ```
 
 Explore
@@ -66,53 +55,7 @@ DOC distribution has a long-tail. Let’s try a log transformation.
 ggplot(df_all) + geom_histogram(aes(x = log(doc)), bins = 100)
 ```
 
-This is better but we still have some extreme values (e.g. `doc_log > 5`). Let’s see where these values are.
-
-```{r}
-ggplot(df_all) + 
-  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") + 
-  geom_point(aes(x = lon, y = lat, colour = log(doc) < 5), size = 0.5) +
-  ggplot2::scale_colour_viridis_d() +
-  coord_quickmap(expand = 0)
-```
-
-The very high DOC values are found at high latitudes in the north (Kara Sea and Laptev Sea). Let’s remove them.
-
--   Kara Sea: 50-100° E, 70-80°N
-
--   Leptev Sea: 100-150° E, 70-80°N
-
-::: {.callout-note appearance="simple"}
-## TODO
-
-Add a justification for removing these points.
-:::
-
-Set DOC values to NA in these areas.
-
-```{r remove_northern_seas}
-df_all <- df_all %>% 
-  mutate(
-    doc = ifelse(between(lon, 50, 100) & between(lat, 70, 80), NA, doc),
-    doc = ifelse(between(lon, 100, 150) & between(lat, 70, 80), NA, doc)
-    ) %>% 
-  drop_na()
-
-ggplot(df_all) +
-  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") + 
-  geom_point(aes(x = lon, y = lat, colour = log(doc) < 5), size = 0.5) +
-  ggplot2::scale_colour_viridis_d() +
-  coord_quickmap(expand = 0)
-```
-
-Let’s replot DOC distributions.
-
-```{r}
-ggplot(df_all) + geom_histogram(aes(x = doc), bins = 100)
-ggplot(df_all) + geom_histogram(aes(x = log(doc)), bins = 100)
-```
-
-This is much better, even if we still have some high values. Let’s apply the log transformation.
+This is better! Let’s indeed apply the log transformation.
 
 ```{r}
 df_all <- df_all %>% mutate(doc_log = log(doc))
@@ -122,7 +65,7 @@ Let’s now investigate the big tendencies in our dataset.
 
 ```{r}
 # Need to remove lon and lat and to scale because units differ between variables
-df_pca <- df_all %>% select(c(lon, lat, doc, everything()))
+df_pca <- df_all %>% select(c(lon, lat, doc, doc_log, everything()))
 pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, scale.unit = TRUE, graph = FALSE)
 ```
 

@@ -18,20 +18,19 @@ execute:
 #|output: false
 source("utils.R")
 load("data/02.all_data.Rdata")
-df <- df_all
-
 output_filename <- "data/03.doc_from_env_nested_cv.Rdata"
 ```
 
-## Data transformation
+## Data preparation
 
-Transform dataframe to sf object for spatial CV.
+### Variable roles
 
-```{r data_trans}
-df_sf <- st_as_sf(df, coords = c("lon", "lat"), crs = 4326)
-
+```{r roles}
+# Response variable
+resp_var <- c("doc_log", "doc") # keep both untransformed and transformed predictor
 # Explanatory variables
-exp_vars <- df %>%
+#exp_vars <- df_all %>% select(nitrate:par) %>% colnames()
+exp_vars <- df_all %>% 
   select(
     temperature,
     phosphate,
@@ -42,7 +41,35 @@ exp_vars <- df %>%
     oxygen
   ) %>%
   colnames()
+# Metadata
+meta_vars <- c("lon", "lat")
 ```
+
+### Drop missing values
+
+This is done after assigning roles to variables because the observations to be dropped depends on the set of explanatory variables.
+
+```{r drop_missing}
+# Dataset to fit the model
+df <- df_all %>% 
+  select(c(all_of(meta_vars), all_of(resp_var), all_of(exp_vars))) %>% 
+  drop_na()
+
+# New data to which apply predictions
+df_env <- df_env %>% 
+  select(c(all_of(meta_vars), all_of(exp_vars))) %>% 
+  drop_na()
+```
+
+### Distribution of response variable
+
+We want the response variable to be \~normally distributed. Let’s plot the distribution of doc_log.
+
+```{r resp_dist}
+ggplot(df) + geom_histogram(aes(x = doc_log), bins = 100)
+```
+
+Not too bad! Let’s proceed.
 
 ## Data split
 
@@ -67,6 +94,9 @@ Two different methods for data splitting are used:
 -   spatial cross-validation using blocks
 
 ```{r split}
+# Transform dataframe to sf object for spatial CV.
+df_sf <- st_as_sf(df, coords = c("lon", "lat"), crs = 4326)
+
 set.seed(seed)
 # Bind together folds of both nested_cv
 folds <- bind_rows(
@@ -126,7 +156,7 @@ xgb_grid <- grid_latin_hypercube(
   learn_rate(),
   tree_depth(),
   min_n(),
-  size = 30
+  size = 10
 )
 ```
 
@@ -151,7 +181,6 @@ res <- mclapply(1:nrow(folds), function(i){
   xgb_wflow <- workflow() %>%
     add_recipe(xgb_rec) %>%
     add_model(xgb_spec)
-
 
   ## Gridsearch
   set.seed(seed)
@@ -192,188 +221,190 @@ res <- mclapply(1:nrow(folds), function(i){
     bind_rows() %>%
     filter(variable != "_baseline_")
 
+  # CP profiles for all variables
+  #selected_points <- ingredients::select_sample(df_train, n = 100, seed = seed)
+  #cp_profiles <- ingredients::ceteris_paribus(xgb_explain, selected_points) %>% as_tibble()
   # CP profiles
   cp_profiles <- lapply(exp_vars, function(my_var){
     model_profile(explainer = xgb_explain, variables = my_var)$cp_profiles %>% as_tibble()
   }) %>%
     bind_rows()
-
+  
+  ## Predict new data
+  new_preds <- augment(final_res, new_data = df_env %>% mutate(doc = NA)) %>% 
+    select(-doc) %>% 
+    rename(pred_doc_log = .pred) %>% 
+    relocate(pred_doc_log, .after = lat)
+  
   ## Return results
   return(tibble(
-    preds = list(preds),
-    importance = list(full_vip),
-    cp_profiles = list(cp_profiles),
-    fold = x$id,
-    cv_type = x$cv_type))
+      preds = list(preds),
+      importance = list(full_vip),
+      cp_profiles = list(cp_profiles),
+      fold = x$id,
+      cv_type = x$cv_type,
+      new_preds = list(new_preds)
+    ))
 }, mc.cores = 10) %>%
   bind_rows()
 ```
 
-Save results
+## Save results
 
 ```{r save}
-save(res, file = output_filename)
+#save(res, file = output_filename)
 ```
 
-## Models evaluation
+```{r}
 
-### Rsquares
 
-```{r rsq}
-# Unnest predictions
-preds <- res %>% select(fold, cv_type, preds) %>% unnest(preds)
 
-# Compute Rsquare for each fold of each CV type
-rsquares <- preds %>%
-  group_by(cv_type, fold) %>%
-  rsq(truth = doc_log, estimate = .pred)
+titi <- cp_profiles %>% 
+  filter(cv_type == "stratified" & fold == "Fold02") %>% 
+  pull(alkalinity) %>% 
+  unique() %>% sort()
 
-# Distribution of Rsquares by CV type
-rsquares %>% split(.$cv_type) %>% map(summary)
-
-# Plot Rsquares values
-ggplot(rsquares) + 
-  geom_boxplot(aes(x = cv_type, y = .estimate, group = cv_type, colour = cv_type)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
-  labs(x = "CV type", y = "R²", colour = "CV type")
-```
-
-### Predictions VS truth
-
-Plot pred VS truth on the test part of each fold of each CV type.
-
-```{r pred_vs_truth_all}
-#| fig-column: body-outset
-#| out-width: 100%
-#| fig-width: 10
-#| fig-height: 8
-preds %>%
+cp_profiles %>%
+  # filter for given fold and variable
+  filter(cv_type == "stratified" & `_vname_` == "temperature") %>%
+  # center each cp profiles across fold, variable and ids
+  group_by(fold, `_vname_`, `_ids_`) %>%
+  mutate(yhat_cent = `_yhat_` - mean(`_yhat_`)) %>% # center cp profiles
+  ungroup() %>%
+  # compute mean and sd of centered cp profiles for each fold and value of the variable of interest
+  group_by(fold, temperature) %>%
+  summarise(
+    yhat_loc = mean(`_yhat_`), # compute mean of profiles
+    yhat_spr = sd(yhat_cent), # compute sd of cp profiles
+    .groups = "keep"
+  ) %>%
+  ungroup() %>%
+  # sort by increasing value of variable of interest
+  arrange(temperature) %>%
+  # rename
+  setNames(c("fold", "x", "yhat_loc", "yhat_spr")) %>%
   ggplot() +
-  geom_point(aes(x = doc_log, y = .pred, colour = cv_type)) +
-  geom_abline(intercept = 0, slope = 1, colour = "red") +
-  coord_fixed() + 
-  facet_wrap(cv_type~fold)
-```
+  geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), fill = "gray80", alpha = 0.5) +
+  geom_path(aes(x = x, y = yhat_loc), color = "midnightblue", linewidth = 1.2) +
+  labs(x = x$variable, title = paste("PDP for", x$variable), subtitle = paste(x$cv_type, "cross-validation")) +
+  facet_wrap(~fold, ncol = 2)
 
-Now let’s focus on a representative fold for each CV type.
-
-```{r pred_vs_truth_rep}
-#| fig-column: body-outset
-#| out-width: 100%
-#| fig-width: 8
-#| fig-height: 4
-# Find the one closer to the median and plot it
-repres_fold <- rsquares %>%
-  group_by(cv_type) %>%
-  mutate(diff = abs(.estimate - median(.estimate))) %>%
-  filter(diff == min(diff)) %>%
-  slice_head(n = 1)
-
-repres_fold %>%
-  select(cv_type, fold) %>%
-  left_join(preds, by = join_by(cv_type, fold)) %>%
+cp_profiles %>%
+  # filter for given fold and variable
+  filter(cv_type == "stratified" & `_vname_` == "temperature") %>%
+  #filter(fold == "Fold01") %>% 
+  # center each cp profiles across fold, variable and ids
+  group_by(fold, `_vname_`, `_ids_`) %>%
+  mutate(yhat_cent = `_yhat_` - mean(`_yhat_`)) %>% # center cp profiles
+  ungroup() %>%
+  # compute mean and sd of centered cp profiles for each fold and value of the variable of interest
+  group_by(fold, temperature) %>%
+  summarise(
+    yhat_loc = mean(`_yhat_`), # compute mean of profiles
+    yhat_spr = sd(yhat_cent), # compute sd of cp profiles
+    .groups = "keep"
+  ) %>%
+  ungroup() %>%
+  # sort by increasing value of variable of interest
+  arrange(temperature) %>%
+  # rename
+  setNames(c("fold", "x", "yhat_loc", "yhat_spr")) %>%
   ggplot() +
-  geom_point(aes(x = doc_log, y = .pred, colour = cv_type)) +
-  geom_abline(intercept = 0, slope = 1, colour = "red") +
-  coord_fixed() + 
-  labs(title = "Pred VS truth for a representative fold") +
-  facet_grid(~cv_type)
+  #geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), fill = "gray80", alpha = 0.5) +
+  geom_path(aes(x = x, y = yhat_loc), color = "midnightblue", linewidth = 1.2) +
+  geom_rug(aes(x = x)) +
+  #labs(x = x$variable, title = paste("PDP for", x$variable), subtitle = paste(x$cv_type, "cross-validation")) +
+  facet_wrap(~fold, ncol = 2)
+  
 ```
 
-### Variable importance
-
-Variable importance for each fold of each CV type.
-
-```{r var_imp_all}
-#| fig-column: body-outset
-#| out-width: 100%
-#| fig-width: 8
-#| fig-height: 10
-# Unnest variable importance
-full_vip <- res %>%
-  select(cv_type, fold, importance) %>%
-  unnest(importance) %>%
-  mutate(variable = forcats::fct_reorder(variable, dropout_loss))
-
-# Variable importance across folds
-full_vip %>%
-  filter(variable != "_full_model_") %>%
-  ggplot() +
-  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
-  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
-  labs(x = "RMSE after permutations") +
-  facet_grid(fold~cv_type)
-```
-
-Now let’s take the mean across folds of each CV type.
-
-```{r var_imp_mean}
-full_vip %>%
-  filter(variable != "_full_model_") %>%
-  group_by(cv_type, fold, variable) %>%
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>%
-  ggplot() +
-  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
-  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
-  labs(x = "Mean RMSE after permutations across CV folds")
-```
-
-### Partial dependence plots
-
-Finally, let’s have a look at partial dependence plots.
-
--   blue line: prediction mean across *cp* profiles
-
--   grey ribbon: prediction sd across centered *cp* profiles
-
-```{r pdp}
-#| fig-column: body-outset
-#| out-width: 100%
-#| fig-width: 8
-#| fig-height: 8
-# Variables for which to plot pdp
-n_pdp <- 3
-vars_pdp <- full_vip %>%
-  filter(variable != "_full_model_") %>%
-  mutate(variable = as.character(variable)) %>%
-  group_by(cv_type, variable) %>%
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>%
-  arrange(desc(dropout_loss)) %>%
-  group_by(cv_type) %>%
-  slice_head(n = n_pdp)
-
+```{r}
 # Unnest cp_profiles
 cp_profiles <- res %>% select(cv_type, fold, cp_profiles) %>% unnest(cp_profiles)
 
-# plots
-pdp_plots <- lapply(1:nrow(vars_pdp), function(i){
-  # Get variable and fold to plot
-  x <- vars_pdp[i, ]
+## Do it separately for each variable and each cv_type
+# Within each fold, compute the mean
+n_folds <- 10
 
-  cp_profiles %>%
-    # filter for given fold and variable
-    filter(cv_type == x$cv_type & `_vname_` == x$variable) %>%
+mean_pdp <- lapply(1:nrow(vars_pdp), function(r){
+  
+  # Get variable and cvtype
+  var_name <- vars_pdp[r,]$variable
+  cv_type_name <- vars_pdp[r,]$cv_type
+  
+  # Get corresponding CP profiles
+  # Compute mean and spread for each fold
+  d_pdp <- cp_profiles %>% 
+    filter(cv_type == cv_type_name & `_vname_` == var_name) %>% 
+    select(cv_type, fold, `_yhat_`, `_vname_`, `_ids_`, all_of(var_name)) %>% 
+    arrange(`_ids_`, across(all_of(var_name))) %>% 
     # center each cp profiles across fold, variable and ids
-    group_by(fold, `_vname_`, `_ids_`) %>%
+    group_by(cv_type, fold, `_vname_`, `_ids_`) %>%
     mutate(yhat_cent = `_yhat_` - mean(`_yhat_`)) %>% # center cp profiles
     ungroup() %>%
     # compute mean and sd of centered cp profiles for each fold and value of the variable of interest
-    group_by(fold, across(all_of(x$variable))) %>%
+    group_by(cv_type, fold, across(all_of(var_name))) %>%
     summarise(
       yhat_loc = mean(`_yhat_`), # compute mean of profiles
       yhat_spr = sd(yhat_cent), # compute sd of cp profiles
       .groups = "keep"
     ) %>%
-    ungroup() %>%
-    # sort by increasing value of variable of interest
-    arrange(across(all_of(x$variable))) %>%
-    # rename
-    setNames(c("fold", "x", "yhat_loc", "yhat_spr")) %>%
-    ggplot() +
-    geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), fill = "gray80", alpha = 0.5) +
-    geom_path(aes(x = x, y = yhat_loc), color = "midnightblue", linewidth = 1.2) +
-    labs(x = x$variable, title = paste("PDP for", x$variable), subtitle = paste(x$cv_type, "cross-validation")) +
-    facet_wrap(~fold, ncol = 2)
-})
-pdp_plots
+    ungroup() %>% 
+    setNames(c("cv_type", "fold", "x", "yhat_loc", "yhat_spr"))
+  
+  # Regularise across folds: need a common x distribution, and interpolate y on this new x
+  new_x <- quantile(d_pdp$x, probs = seq(0, 1, 0.01), names = FALSE)
+  # x is different within each fold, so interpolation is performed on each fold
+  folds <- unique(d_pdp$fold) %>% sort()
+  int_pdp <- lapply(1:n_folds, function(i){
+    # Get data corresponding to this fold
+    fold_name <- folds[i]
+    this_fold <- d_pdp %>% filter(fold == fold_name)
+    #cv_type_name <- bar %>% pull(cv_type) %>% unique()
+    
+    # Extract original x values
+    x <- this_fold$x
+    # Extract values to interpolate (yhat_loc and yhat_spr)
+    yhat_loc <- this_fold$yhat_loc
+    yhat_spr <- this_fold$yhat_spr
+    # Interpolate yhat_loc and yhat_spr on new x values
+    int <- tibble(
+      x = new_x,
+      yhat_loc = castr::interpolate(x = x, y = yhat_loc, xout = new_x),
+      yhat_spr = castr::interpolate(x = x, y = yhat_spr, xout = new_x),
+    ) %>% 
+      mutate(
+        cv_type = cv_type_name,
+        fold = fold_name,
+        var_name = var_name,
+        .before = x
+        )
+    # Return the result
+    return(int)
+    
+  }) %>% 
+    bind_rows()
+  
+  # Across fold, compute the weighted mean, using 1/var as weights
+  mean_pdp <- int_pdp %>% 
+    group_by(cv_type, var_name, x) %>% 
+    summarise(
+      yhat_loc = wtd.mean(yhat_loc, weights = 1/(yhat_spr)^2),
+      yhat_spr = wtd.mean(yhat_spr, weights = 1/(yhat_spr)^2),
+      .groups = "drop"
+    ) %>% 
+    arrange(x)
+  
+  # Return the result
+  return(mean_pdp)
+}) %>% 
+  bind_rows()
+
+
+
+ggplot(mean_pdp) + 
+  geom_path(aes(x = x, y = yhat_loc, colour = cv_type)) +
+  geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr, fill = cv_type), alpha = 0.2) +
+  facet_wrap(~var_name, scales = "free_x")
+  
 ```
