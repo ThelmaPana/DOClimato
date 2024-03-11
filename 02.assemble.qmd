@@ -61,6 +61,10 @@ This is better! Let’s indeed apply the log transformation.
 df_all <- df_all %>% mutate(doc_log = log(doc))
 ```
 
+::: callout-note
+Note as we will be dropping pixels with any missing value in the predictors, the distribution of DOC values is likely to change further, and this is actually the case when prediction is performed using all environmental predictors (see next notebook).
+:::
+
 Let’s now investigate the big tendencies in our dataset.
 
 ```{r}

@@ -350,8 +350,6 @@ Let’s try data from Argo Mixed Layers: <http://mixedlayer.ucsd.edu/>.
 
 This data uses the same grid as WOA, we can combine them together.
 
-[TODO: which algorithm to use: density or threshold?]{style="color: red;"}
-
 ```{r read_mld_argo}
 # Open one file to get all coordinates (lon, lat, depth)
 nc <- nc_open("data/raw/mld/Argo_mixedlayers_monthlyclim_04142022.nc")
@@ -611,7 +609,7 @@ save(df_env, file = "data/00.all_env.Rdata")
 var_names <- df_env %>% select(-c(lon, lat)) %>% colnames()
 
 plot_list <- list()
-for (i in 1:length(var_names)){plot_list[[i]] <- ggmap(env, var_names[i], type = "raster")}
+for (i in 1:length(var_names)){plot_list[[i]] <- ggmap(df_env, var_names[i], type = "raster")}
 
 plot_list
 

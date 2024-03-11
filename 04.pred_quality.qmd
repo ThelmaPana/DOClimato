@@ -138,7 +138,7 @@ Finally, let’s have a look at partial dependence plots.
 #| fig-width: 8
 #| fig-height: 3
 # Variables for which to plot pdp
-n_pdp <- 3
+n_pdp <- 5
 vars_pdp <- full_vip %>%
   filter(variable != "_full_model_") %>%
   mutate(variable = as.character(variable)) %>%
@@ -234,6 +234,13 @@ mean_pdp <- lapply(1:nrow(vars_pdp), function(r){
   return(mean_pdp)
 }) %>% 
   bind_rows()
+
+# Arrange in order of most important variables
+mean_pdp <- vars_pdp %>% 
+  rename(var_name = variable) %>% 
+  left_join(mean_pdp, by = join_by(cv_type, var_name)) %>% 
+  mutate(var_name = fct_inorder(var_name)) %>% 
+  select(-dropout_loss)
 
 # Plot it!
 ggplot(mean_pdp) + 

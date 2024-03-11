@@ -56,7 +56,7 @@ new_preds_spat <- new_preds_spat %>% left_join(rsquares, by = join_by(cv_type, f
 
 ## Generate maps
 
-For both types of CV, we use all the folds to generate and average prediction, weighted by 1/R². Similarly, we also compute a weighted variance.
+For both types of CV, we use all the folds to generate and average prediction, weighted by 1/R². Similarly, we also compute a weighted standard deviation.
 
 ### Average by pixel
 
@@ -66,7 +66,7 @@ strat_proj <- new_preds_strat %>%
   group_by(lon, lat) %>% 
   summarise(
     doc_avg = wtd.mean(pred_doc, weights = 1/rsq, na.rm = TRUE), 
-    doc_var = wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE), 
+    doc_sd = sqrt(wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE)), 
     .groups = "drop"
     )
 
@@ -75,7 +75,7 @@ spat_proj <- new_preds_spat %>%
   group_by(lon, lat) %>% 
   summarise(
     doc_avg = wtd.mean(pred_doc, weights = 1/rsq, na.rm = TRUE), 
-    doc_var = wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE), 
+    doc_sd = sqrt(wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE)), 
     .groups = "drop"
     )
 
@@ -85,9 +85,9 @@ doc_avg_lims <- c(
   max(c(strat_proj$doc_avg, spat_proj$doc_avg))  
 )
 
-doc_var_lims <- c(
-  min(c(strat_proj$doc_var, spat_proj$doc_var)), 
-  max(c(strat_proj$doc_var, spat_proj$doc_var))  
+doc_sd_lims <- c(
+  min(c(strat_proj$doc_sd, spat_proj$doc_sd)), 
+  max(c(strat_proj$doc_sd, spat_proj$doc_sd))  
 )
 ```
 
@@ -107,9 +107,9 @@ ggplot(strat_proj) +
 
 ggplot(strat_proj) + 
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
-  geom_raster(aes(x = lon, y = lat, fill = doc_var)) + 
-  ggplot2::scale_fill_viridis_c(trans = "log1p", option = "E", limits = doc_var_lims) +
-  labs(title = "DOC var from stratified CV") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_sd)) + 
+  ggplot2::scale_fill_viridis_c(trans = "log1p", option = "E", limits = doc_sd_lims) +
+  labs(title = "DOC sd from stratified CV") +
   coord_quickmap(expand = 0)
 ```
 
@@ -127,8 +127,31 @@ ggplot(spat_proj) +
 
 ggplot(spat_proj) + 
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
-  geom_raster(aes(x = lon, y = lat, fill = doc_var)) + 
-  ggplot2::scale_fill_viridis_c(trans = "log1p", option = "E", limits = doc_var_lims) +
-  labs(title = "DOC var from spatial CV") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_sd)) + 
+  ggplot2::scale_fill_viridis_c(trans = "log1p", option = "E", limits = doc_sd_lims) +
+  labs(title = "DOC sd from spatial CV") +
   coord_quickmap(expand = 0)
 ```
+
+## Check the difference between stratified and spatial CV
+
+```{r diff}
+#| fig-column: body-outset
+#| out-width: 100%
+strat_proj %>% 
+  select(lon, lat, strat = doc_avg) %>% 
+  left_join(spat_proj %>% select(lon, lat, spat = doc_avg), by = join_by(lon, lat)) %>% 
+  mutate(diff = strat - spat) %>% 
+  ggplot() + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = diff)) + 
+  scale_fill_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027") +
+  labs(title = "DOC stratified CV - DOC spatial CV") +
+  coord_quickmap(expand = 0)
+```
+
+::: callout-note
+## Conclusion
+
+No obvious difference between both (except in the North Sea), likely due to averaging across folds.
+:::
