@@ -20,4 +20,115 @@ source("utils.R")
 load("data/03.doc_from_env_nested_cv.Rdata")
 ```
 
-## 
+## Extract projections
+
+```{r get_proj}
+# Unnest new predictions (i.e. projections)
+new_preds <- res %>% 
+  select(fold, cv_type, new_preds) %>% 
+  unnest(new_preds) %>% 
+  mutate(pred_doc = exp(pred_doc_log), .after = pred_doc_log) %>% 
+  select(cv_type, fold, lon, lat, contains("doc"))
+
+# Get those from stratified CV
+new_preds_strat <- new_preds %>% filter(cv_type == "stratified")
+
+# And those from spatial CV
+new_preds_spat <- new_preds %>% filter(cv_type == "spatial")
+```
+
+Join projections with R² value for each fold and each cv_type.
+
+```{r get_r2}
+# Unnest predictions on test set
+preds <- res %>% select(fold, cv_type, preds) %>% unnest(preds)
+
+# Compute Rsquare for each fold of each CV type
+rsquares <- preds %>%
+  group_by(cv_type, fold) %>%
+  rsq(truth = doc_log, estimate = .pred) %>% 
+  select(cv_type, fold, rsq = .estimate)
+
+# Join with projections
+new_preds_strat <- new_preds_strat %>% left_join(rsquares, by = join_by(cv_type, fold))
+new_preds_spat <- new_preds_spat %>% left_join(rsquares, by = join_by(cv_type, fold))
+```
+
+## Generate maps
+
+For both types of CV, we use all the folds to generate and average prediction, weighted by 1/R². Similarly, we also compute a weighted variance.
+
+### Average by pixel
+
+```{r avg_pix}
+# Stratified
+strat_proj <- new_preds_strat %>% 
+  group_by(lon, lat) %>% 
+  summarise(
+    doc_avg = wtd.mean(pred_doc, weights = 1/rsq, na.rm = TRUE), 
+    doc_var = wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE), 
+    .groups = "drop"
+    )
+
+# Spatial
+spat_proj <- new_preds_spat %>% 
+  group_by(lon, lat) %>% 
+  summarise(
+    doc_avg = wtd.mean(pred_doc, weights = 1/rsq, na.rm = TRUE), 
+    doc_var = wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE), 
+    .groups = "drop"
+    )
+
+# Generate common colour bar limits for both CV types
+doc_avg_lims <- c(
+  min(c(strat_proj$doc_avg, spat_proj$doc_avg)), 
+  max(c(strat_proj$doc_avg, spat_proj$doc_avg))  
+)
+
+doc_var_lims <- c(
+  min(c(strat_proj$doc_var, spat_proj$doc_var)), 
+  max(c(strat_proj$doc_var, spat_proj$doc_var))  
+)
+```
+
+Let’s now plot maps with a common colour scale for both CV types.
+
+### Stratified CV
+
+```{r strat_maps}
+#| fig-column: body-outset
+#| out-width: 100%
+ggplot(strat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_avg)) + 
+  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims) +
+  labs(title = "DOC avg from stratified CV") +
+  coord_quickmap(expand = 0)
+
+ggplot(strat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_var)) + 
+  ggplot2::scale_fill_viridis_c(trans = "log1p", option = "E", limits = doc_var_lims) +
+  labs(title = "DOC var from stratified CV") +
+  coord_quickmap(expand = 0)
+```
+
+### Spatial CV
+
+```{r spat_maps}
+#| fig-column: body-outset
+#| out-width: 100%
+ggplot(spat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_avg)) + 
+  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims) +
+  labs(title = "DOC avg from spatial CV") +
+  coord_quickmap(expand = 0)
+
+ggplot(spat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_var)) + 
+  ggplot2::scale_fill_viridis_c(trans = "log1p", option = "E", limits = doc_var_lims) +
+  labs(title = "DOC var from spatial CV") +
+  coord_quickmap(expand = 0)
+```
