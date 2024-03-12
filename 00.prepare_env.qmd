@@ -1,6 +1,6 @@
 ---
-title: "Prepare environmental data from GLODAP"
-subtitle: "Read raw data (env & DOC) and format it nicely."
+title: "Prepare environmental data from GLODAP and others"
+subtitle: "Read raw env data, clean it and format it nicely."
 author: "Thelma Panaïotis, Laetitia Drago & Jean-Olivier Irisson"
 format:
   html:
@@ -8,7 +8,7 @@ format:
     embed-resources: true
 editor: visual
 execute:
-  cache: false
+  cache: true
   warning: false
 ---
 

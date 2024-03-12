@@ -7,7 +7,7 @@ format:
     embed-resources: true
 editor: visual
 execute:
-  cache: false
+  cache: true
   warning: false
 ---
 
@@ -15,25 +15,27 @@ execute:
 source("utils.R")
 ```
 
-Load data
+## Join env and DOC
+
+### Load data
 
 ```{r load}
 load("data/00.all_env.Rdata")
 load("data/01.doc_data.Rdata")
 ```
 
-Join env and DOC data.
+### Join
 
 ```{r join}
 df_all <- df_env %>% 
-  #drop_na() %>% # drop missing env data
-  left_join(df_doc %>% select(lon, lat, doc = doc_mean), by = join_by(lon, lat)) #%>% 
-  #drop_na(doc) # drop missing doc data
+  left_join(df_doc %>% select(lon, lat, doc = doc_mean), by = join_by(lon, lat))
 ```
 
-Plot some maps.
+### Plot some maps
 
-```{r}
+```{r maps}
+#| fig-column: body-outset
+#| out-width: 100%
 ggmap(df_env, var = "oxygen", type = "raster") +
   geom_point(data = df_all %>% filter(!is.na(doc)), aes(x = lon, y = lat), size = 0.5)
 
@@ -41,23 +43,23 @@ ggmap(df_all, var = "doc", type = "point") +
   ggplot2::scale_colour_viridis_c(option = "A", trans = "log10", na.value = NA)
 ```
 
-Explore
+## Some data exploration
 
-Response variable
+### Response variable
 
-```{r}
+```{r hist_doc}
 ggplot(df_all) + geom_histogram(aes(x = doc), bins = 100)
 ```
 
 DOC distribution has a long-tail. Let’s try a log transformation.
 
-```{r}
+```{r hist_log_doc}
 ggplot(df_all) + geom_histogram(aes(x = log(doc)), bins = 100)
 ```
 
 This is better! Let’s indeed apply the log transformation.
 
-```{r}
+```{r apply_log}
 df_all <- df_all %>% mutate(doc_log = log(doc))
 ```
 
@@ -65,9 +67,11 @@ df_all <- df_all %>% mutate(doc_log = log(doc))
 Note as we will be dropping pixels with any missing value in the predictors, the distribution of DOC values is likely to change further, and this is actually the case when prediction is performed using all environmental predictors (see next notebook).
 :::
 
+### Explanatory variables
+
 Let’s now investigate the big tendencies in our dataset.
 
-```{r}
+```{r pca}
 # Need to remove lon and lat and to scale because units differ between variables
 df_pca <- df_all %>% select(c(lon, lat, doc, doc_log, everything()))
 pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, scale.unit = TRUE, graph = FALSE)
@@ -75,17 +79,21 @@ pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, scale.unit = TRUE, graph = 
 
 Plot eigenvalues.
 
-```{r}
+```{r eig}
 plot_eig(pca_all)
 ```
 
 Plot variables.
 
-```{r}
+```{r vars}
+#| fig-column: body-outset
+#| out-width: 100%
 plot(pca_all, choix = "var", axes = c(1, 2), cex = 0.7)
 ```
 
-```{r}
+```{r inds}
+#| fig-column: body-outset
+#| out-width: 100%
 ## Get coordinates of individuals
 inds <- pca_all$ind$coord %>% as_tibble()
 # Set nice names for columns
@@ -99,11 +107,12 @@ ggmap(inds, "dim2", type = "point", palette = div_pal)
 
 ## Save everything
 
-Annotated data
+Two datasets are saved:
 
-New data to predict.
+-   one with both DOC and env data at locations where DOC is available: this will be used to train the model.
 
-```{r}
-#df_all <- all
+-   one with global map of env data, to predict DOC at the global scale
+
+```{r save}
 save(df_all, df_env, file = "data/02.all_data.Rdata")
 ```
