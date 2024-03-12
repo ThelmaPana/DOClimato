@@ -1,14 +1,14 @@
 ---
-title: "Prepare environmental data from GLODAP"
-subtitle: "Read raw data (env & DOC) and format it nicely."
-author: "Thelma Panaïotis, Laetitia Drago & Jean-Olivier Irisson"
+title: "Prepare DOC data"
+subtitle: "Read raw data, clean it and compute averages per pixel."
+author: "Thelma Panaïotis"
 format:
   html:
     toc: true
     embed-resources: true
 editor: visual
 execute:
-  cache: false
+  cache: true
   warning: false
 ---
 
@@ -34,21 +34,20 @@ columns <- read_excel(
   tolower()
 
 # Read a second time to get the data with the proper column names
-df_doc <- read_excel(
+df_doc_raw <- read_excel(
     "data/raw/0227166/4.4/data/0-data/All_Basins_Data_Merged_Hansell_2022.xlsx",
     skip = 2, 
     col_names = columns
   )
 
 # Select useful columns
-df_doc <- df_doc %>%
+df_doc <- df_doc_raw %>%
   select(
     bottle, bottle_flag_w,
     lon = longitude, lat = latitude, date,
     press = `ctd pressure`,
     doc, doc_flag_w
-  ) %>%
-  mutate(date = ymd(date)) # warning because some dates are missing
+  )
 
 # Keep only observations in the 0-10 m range
 df_doc <- df_doc %>% filter(between(press, 0, 10))
@@ -58,17 +57,51 @@ df_doc <- df_doc %>% filter(between(press, 0, 10))
 
 Remove aberrant doc observations (flag = 9, negative values…).
 
+::: callout-warning
+## TODO
+
+What values are ok for flags? Should we remove bottles that are `-999`?
+:::
+
 ```{r clean_doc}
 df_doc <- df_doc %>%
+  filter(!date %in% c(-999, 0)) %>% # missing date
+  filter(!bottle_flag_w %in% c(-999, 9)) %>% # bottle flag is ok
   filter(doc_flag_w != 9) %>% # flag is ok
   filter(doc > 0) %>% # doc is positive
-  drop_na(doc) # drop missing values
+  drop_na(doc) #%>% # drop missing values
+ # mutate(date = ymd(date)) # format date
+summary(df_doc)
+```
+
+There is also a little cleaning to do with dates: the TRACERS (2013) cruise reported dates as `201303X` , but after inspecting boat trajectory (available at <https://www.bco-dmo.org/dataset/549090>) and comparing with DOC sampling location, it appears that those dates should be `2013030X`.
+
+Moreover, some dates are `YYYYMM00`, let’s change them to `YYYYMM01`.
+
+Let’s fix this.
+
+```{r clean_date}
+df_doc <- df_doc %>% 
+  mutate(
+    date = as.character(date),  # convert date to character to split it
+    # Fix for Tracers 2013
+    date = ifelse( # if only 7 characters in date, one character is missing, add a 0 before the last character
+      nchar(date == 7),
+      paste0(str_extract(date, "^[[:digit:]]{6}"), "0", str_extract(date, "[[:digit:]]{1}$")),
+      date
+      ),
+    # Fix for dates ending in 00
+    date = str_replace(date, "00$", "01"),
+    date = ymd(date) # format date
+    )
 ```
 
 ## Average by pixel across the layer
 
-```{r avg_doc}
-df_doc <- df_doc %>%
+### Annual
+
+```{r ann_avg_doc}
+df_doc_ann <- df_doc %>%
   mutate(
     # floor and add 0.5 because other env data are on the centre of each pixel
     lon = roundp(lon, precision = 1, f = floor) + 0.5,
@@ -79,32 +112,127 @@ df_doc <- df_doc %>%
     # compute mean and sd
     doc_mean = mean(doc),
     doc_sd = sd(doc),
-    n_obs = n()
-  ) %>%
-  ungroup()
+    n_obs = n(),
+    .groups = "drop"
+  ) 
 ```
 
 Let’s plot some maps.
 
-```{r doc_maps}
+```{r ann_doc_maps}
+#| fig-column: body-outset
+#| out-width: 100%
 # Number of observations
-ggmap(df_doc, "n_obs", type = "point") +
+ggmap(df_doc_ann, "n_obs", type = "point") +
   ggplot2::scale_colour_viridis_c(option = "cividis", trans = "log10", direction = -1) +
   ggtitle("Number of observations")
 
 # DOC mean
-ggmap(df_doc, "doc_mean", type = "point") + 
+ggmap(df_doc_ann, "doc_mean", type = "point") + 
   ggplot2::scale_colour_viridis_c(option = "A", trans = "log10") +
   ggtitle("DOC mean")
 
 # DOC sd
-ggmap(df_doc, "doc_sd", type = "point") + 
+ggmap(df_doc_ann, "doc_sd", type = "point") + 
   ggplot2::scale_colour_viridis_c() +
   ggtitle("DOC sd")
 ```
 
+### Monthly
+
+```{r month}
+df_doc_m <- df_doc %>% 
+  mutate(month = month(date)) %>% # compute month from date
+  # generate montly average by pixel
+  mutate(
+    # floor and add 0.5 because other env data are on the centre of each pixel
+    lon = roundp(lon, precision = 1, f = floor) + 0.5,
+    lat = roundp(lat, precision = 1, f = floor) + 0.5
+  ) %>%
+  group_by(lon, lat, month) %>%
+  summarise(
+    # compute mean and sd
+    doc_mean = mean(doc),
+    doc_sd = sd(doc),
+    n_obs = n(),
+    .groups = "drop"
+  )
+
+# number of observations per month
+ggplot(df_doc_m) + geom_bar(aes(x = month)) + scale_x_continuous(n.breaks = 11, expand = c(0,0))
+```
+
+No big hols in terms of number of observations. Let’s have a look at montly maps.
+
+```{r m_doc_maps}
+#| fig-column: screen-inset
+#| out-width: 100%
+#| fig-width: 10
+#| fig-height: 5
+ggmap(df_doc_m, "doc_mean", type = "point") + 
+  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10") +
+  facet_wrap(~month) +
+  ggtitle("DOC mean by month")
+```
+
+As expected, very few observations during winter at high latitudes.
+
+### Seasonal
+
+Seasons are defined as:
+
+-   season 1 = DJF
+
+-   season2 = MAM
+
+-   season 3 = JJA
+
+-   season 4 = SON
+
+```{r season}
+df_doc_s <- df_doc %>% 
+  mutate(season = quarter(date, fiscal_start = 12)) %>% 
+  # generate seasonal average by pixel
+  mutate(
+    # floor and add 0.5 because other env data are on the centre of each pixel
+    lon = roundp(lon, precision = 1, f = floor) + 0.5,
+    lat = roundp(lat, precision = 1, f = floor) + 0.5
+  ) %>%
+  group_by(lon, lat, season) %>%
+  summarise(
+    # compute mean and sd
+    doc_mean = mean(doc),
+    doc_sd = sd(doc),
+    n_obs = n(),
+    .groups = "drop"
+  ) 
+
+# Counts per season
+ggplot(df_doc_s) + geom_bar(aes(x = season)) + scale_x_continuous(n.breaks = 3, expand = c(0,0))
+```
+
+And plot seasonal maps.
+
+```{r s_doc_maps}
+#| fig-column: screen-inset
+#| out-width: 100%
+#| fig-width: 10
+#| fig-height: 5
+ggmap(df_doc_s, "doc_mean", type = "point") + 
+  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10") +
+  facet_wrap(~season) +
+  ggtitle("DOC mean by season")
+```
+
+Same problem of winter at high latitudes.
+
+::: callout-note
+For now, we will focus on annual data only.
+:::
+
 ## Save DOC data
 
 ```{r save}
+df_doc <- df_doc_ann
 save(df_doc, file = "data/01.doc_data.Rdata")
 ```
