@@ -3,38 +3,28 @@
 library(tidyverse)
 library(parallel)
 library(here)
-#suppressWarnings(library(reticulate))
-#
+
 ## Reading & downloading
 library(ncdf4)
 library(R.matlab)
-#suppressWarnings(library(ecotaxarapi))
 library(readxl)
-#
+
 ## Processing
-#suppressWarnings(library(glue))
 library(castr)
 library(fields)
-#suppressWarnings(library(abind))
 library(oce)
 library(vegan)
 library(plotpca)
 library(Hmisc)
-#suppressWarnings(library(morphr))
-#suppressWarnings(library(mFD))
-#suppressWarnings(library(tabula))
 library(sf)
 library(spatialsample)
-#
+
 ## Plots
 library(cmocean)
 library(chroma)
-#suppressWarnings(library(ggrepel))
-#
+
 ## Modeling
 library(tidymodels)
-#suppressWarnings(library(rpart.plot))
-#suppressWarnings(library(vip))
 library(DALEXtra)
 
 
