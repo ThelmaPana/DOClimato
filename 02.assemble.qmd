@@ -12,6 +12,7 @@ execute:
 ---
 
 ```{r set_up}
+#| cache: false
 source("utils.R")
 ```
 
@@ -104,6 +105,40 @@ inds <- df_all %>% bind_cols(inds)
 ggmap(inds, "dim1", type = "point", palette = div_pal)
 ggmap(inds, "dim2", type = "point", palette = div_pal)
 ```
+
+### Distribution of DOC-annotated data VS overall env data
+
+It is important that the distribution of env data used to predict DOC is representative of the overall environmental data that we are going to used to make predictions.
+
+```{r comp_distrib}
+#| fig-column: screen-inset
+#| out-width: 100%
+#| fig-width: 15
+#| fig-heigh: 10
+# List env variables
+env_vars <- df_env %>% select(-c(lon, lat)) %>% colnames()
+
+
+# Reshape tables of doc-annotated and overall env data
+dist_doc_ann <- df_all %>% 
+  drop_na(doc) %>% 
+  select(all_of(env_vars)) %>% 
+  mutate(type = "doc-annotated") %>% 
+  pivot_longer(all_of(env_vars), names_to = "variable")
+dist_env <- df_env %>% 
+  select(all_of(env_vars)) %>% 
+  mutate(type = "overall") %>% 
+  pivot_longer(all_of(env_vars), names_to = "variable")
+
+# Assemble and plot
+bind_rows(dist_doc_ann, dist_env) %>% 
+  drop_na() %>% 
+  ggplot() + 
+  geom_density(aes(x = value, colour = type)) +
+  facet_wrap(~variable, scales = "free")
+```
+
+Distributions are not too different, this is good, it means that our model won’t extrapolate outside of the range it was trained on.
 
 ## Save everything
 
