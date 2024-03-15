@@ -122,7 +122,10 @@ Btw, how do projections vary across CV folds? Let’s plot it.
 #| out-width: 100%
 #| fig-width: 15
 #| fig-height: 10
-ggplot(new_preds_strat) +
+new_preds_strat %>% 
+  # Add information of R² to cv name
+  mutate(fold = paste0(fold, " (R² = ", percent(rsq, accuracy = 0.1), ")")) %>% 
+  ggplot() +
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
   geom_raster(aes(x = lon, y = lat, fill = pred_doc)) + 
   ggplot2::scale_fill_viridis_c(option = "F") +
@@ -162,7 +165,9 @@ Sd across folds is higher for spatial CV, we can expect more variation across fo
 #| out-width: 100%
 #| fig-width: 15
 #| fig-height: 10
-ggplot(new_preds_spat) +
+new_preds_spat %>% 
+  mutate(fold = paste0(fold, " (R² = ", percent(rsq, accuracy = 0.1), ")")) %>% 
+  ggplot() +
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
   geom_raster(aes(x = lon, y = lat, fill = pred_doc)) + 
   ggplot2::scale_fill_viridis_c(option = "F") +
