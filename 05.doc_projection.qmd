@@ -58,7 +58,7 @@ new_preds_spat <- new_preds_spat %>% left_join(rsquares, by = join_by(cv_type, f
 
 ## Generate maps
 
-For both types of CV, we use all the folds to generate and average prediction, weighted by 1/R². Similarly, we also compute a weighted standard deviation.
+For both types of CV, we use all the folds to generate and average prediction, weighted by R². Similarly, we also compute a weighted standard deviation.
 
 ### Average by pixel
 
@@ -67,8 +67,8 @@ For both types of CV, we use all the folds to generate and average prediction, w
 strat_proj <- new_preds_strat %>% 
   group_by(lon, lat) %>% 
   summarise(
-    doc_avg = wtd.mean(pred_doc, weights = 1/rsq, na.rm = TRUE), 
-    doc_sd = sqrt(wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE)), 
+    doc_avg = wtd.mean(pred_doc, weights = rsq, na.rm = TRUE), 
+    doc_sd = sqrt(wtd.var(pred_doc, weights = rsq, na.rm = TRUE)), 
     .groups = "drop"
     )
 
@@ -76,8 +76,8 @@ strat_proj <- new_preds_strat %>%
 spat_proj <- new_preds_spat %>% 
   group_by(lon, lat) %>% 
   summarise(
-    doc_avg = wtd.mean(pred_doc, weights = 1/rsq, na.rm = TRUE), 
-    doc_sd = sqrt(wtd.var(pred_doc, weights = 1/rsq, na.rm = TRUE)), 
+    doc_avg = wtd.mean(pred_doc, weights = rsq, na.rm = TRUE), 
+    doc_sd = sqrt(wtd.var(pred_doc, weights = rsq, na.rm = TRUE)), 
     .groups = "drop"
     )
 
