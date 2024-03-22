@@ -3,6 +3,7 @@
 library(tidyverse)
 library(parallel)
 library(here)
+library(pbmcapply)
 
 ## Reading & downloading
 library(ncdf4)
@@ -18,6 +19,7 @@ library(plotpca)
 library(Hmisc)
 library(sf)
 library(spatialsample)
+library(abind)
 
 ## Plots
 library(cmocean)
@@ -53,15 +55,18 @@ dir.create(woa_loc, showWarnings=FALSE, recursive=TRUE)
 # Path to WOA dataset
 woa_dir <- "~/Documents/work/datasets/woa"
 
+
 # Whether to perform download for WOA data
 download_woa <- FALSE
 
-# Max depth for WOA data, this data will be used to compute clines
-max_depth_woa <- 500
+# Max depth to compute clines from WOA
+max_depth_woa <- 500 # compromise between coverage and computation cost
 
-# Max depth of the layer we consider for predictors
-# Data will be averaged from the surface to this layer
-layer_bottom <- 10
+# Max depth of the layers we consider for predictors
+surface_bottom <- 10
+meso_top <- 200
+meso_bottom <- 1000
+# bathy is anything below meso
 
 ## UVP
 # Depth above which to keep UVP objects
@@ -83,6 +88,7 @@ col_temp   <- cmocean("thermal")(100)
 col_sal    <- cmocean("haline")(100)
 col_dens   <- cmocean("dense")(100)
 col_oxy    <- brewer_colors(100, "Blues")
+col_aou    <- brewer_colors(100, "Purples")
 col_nit    <- cmocean("tempo")(100)
 col_phos   <- brewer_colors(100, "BuPu")
 col_sil    <- brewer_colors(100, "PuBu")

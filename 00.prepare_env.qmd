@@ -1,5 +1,5 @@
 ---
-title: "Prepare environmental data from GLODAP and others"
+title: "Prepare environmental data from woa and others"
 subtitle: "Read raw env data, clean it and format it nicely."
 author: "Thelma Panaïotis, Laetitia Drago & Jean-Olivier Irisson"
 format:
@@ -19,297 +19,394 @@ execute:
 source("utils.R")
 ```
 
-## GLODAP
+## Predictors overview
 
-Read one file to get dimensions.
+### List
 
-```{r prep_read}
-# List of files
-files <- list.files("data/raw/GLODAPv2.2016b_MappedClimatologies", pattern = ".nc", full.names = TRUE)
-# List of var names from files
-vars <- str_extract(files, "((?<=2016b\\.).+)(.(?=.nc))")
+Aim to predict DOC in 3 layers:
 
-# Open one file to get dimensions
-nc <- nc_open(files[1])
+-   surface: 0-10 m
+
+-   mesopelagic: 200 - 1000 m
+
+-   bathypelagic: \> 1000 m
+
+The table below details the predictors used for each layer.
+
++-------------+------------+-----------+-------------+-------------+------------------------+
+| What        | From where | Timescale | Depth range | Layers      | Predictor for          |
++=============+============+===========+=============+=============+========================+
+| Temperature | WOA        | Seasonal  | 0-5500      | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   bathy   | -   bathy              |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Salinity    | WOA        | Seasonal  | 0-5500      | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   bathy   | -   bathy              |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Density     | WOA        | Seasonal  | 0-5500?     | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   bathy   | -   bathy              |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Oxygen      | WOA        | Seasonal  | 0-1500      | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   bathy   | -   bathy              |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| AOU         | WOA        | Seasonal  | 0-1500?     | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   bathy   | -   bathy              |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Silicate    | WOA        | Seasonal  | 0-800       | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Phosphate   | WOA        | Seasonal  | 0-800       | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Nitrate     | WOA        | Seasonal  | 0-800       | -   surface | -   surface/meso/bathy |
+|             |            |           |             |             |                        |
+|             |            |           |             | -   meso    | -   meso/bathy         |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| MLD         | WOA        | Seasonal  | Depth value |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Thermocline | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Pycnocline  | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| N-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| P-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| S-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Z~eu~       | Cael       | Monthly   | Depth value |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| NPP         | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| BBP         | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Fmicro      | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| log(chl)    | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| PIC         | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| φ PSD slope | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+| Irradiance  | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
++-------------+------------+-----------+-------------+-------------+------------------------+
+
+: Predictors set.
+
+::: callout-note
+## Differences from woa
+
+No more alkalinity and DIC. This is probably not important as these were not strong predictors in preliminary analyses.
+:::
+
+### Processing
+
+We need:
+
+-   seasonal + annual values at the surface (because surface data are also used to predict meso and bathy, with annual timescale)
+
+-   annual values in the meso and bathy
+
+## WOA
+
+### Download
+
+Perform only if necessary.
+
+```{r download_woa}
+if (download_woa){
+  # define all combinations of variables to download
+  df <- read_csv(
+    "var,abbrv,period
+    temperature,t,A5B7
+    salinity,s,A5B7
+    density,I,A5B7
+    mld,M02,A5B7
+    AOU,A,all
+    silicate,i,all
+    phosphate,p,all
+    nitrate,n,all
+    oxygen,o,all
+  ", show_col_types = FALSE)
+  month <- sprintf("%02i",13:16) # seasons
+  combi <- crossing(df, month)
+
+  # define download URLs
+  urls <- str_glue("https://data.nodc.noaa.gov/thredds/fileServer/ncei/woa/{var}/{period}/1.00/woa18_{period}_{abbrv}{month}_01.nc", .envir = combi)
+
+  # and download files
+  lapply(urls, function(url) {
+    dest <- file.path(woa_dir, basename(url))
+    if (!file.exists(dest)) { # if not previously downloaded
+      message(basename(url))
+      download.file(url, destfile = dest)
+      Sys.sleep(10)
+    }
+
+  })
+  message("Done downloading WOA data")
+
+  # create links to the downloaded files with easier names
+  ok <- file.symlink(
+    from = str_glue("{woa_dir}/woa18_{period}_{abbrv}{month}_01.nc", .envir = combi),
+    to = file.path(woa_loc, str_glue("{var}_{month}.nc", .envir = mutate(combi, month = as.numeric(month))))
+  )
+  all(ok)
+}
+```
+
+### Read
+
+```{r read_woa}
+# List WOA variables
+vars <- c("temperature", "salinity", "density", "mld", "oxygen", "aou", "silicate", "phosphate", "nitrate")
+
+# Open one file to get all coordinates (lon, lat, depth)
+nc <- nc_open(file.path(woa_loc, "temperature_13.nc"))
 lon <- ncvar_get(nc, "lon")
-rank_lon <- rank(lon) # rank of longitudes to reorganise
 lat <- ncvar_get(nc, "lat")
-depth <- ncvar_get(nc, "Depth")
+depth <- ncvar_get(nc, "depth")
 # Get indexes of relevant depth
-depth_idx <- which(depth <= max_depth_woa)
+#depth_idx <- which(depth <= max_depth_woa)
 # Limit depth to chosen max depth
-depth <- ncvar_get(nc, "Depth", count = max(depth_idx))
+#depth <- ncvar_get(nc, "depth", count = max(depth_idx))
 # Number of depth values
-depth_count <- max(depth_idx)
+depth_count <- length(depth)
 # Close the file
 nc_close(nc)
 
 
 # Read all files in parallel
-glodap <- mclapply(files, function(file) {
-  
-  # get variable name from file
-  var <- str_extract(file, "((?<=2016b\\.).+)(.(?=.nc))")
-  
-  # open, read, close
-  nc <- nc_open(file)
-  block <- ncvar_get(nc, varid = var, count = c(360, 180, depth_count))
-  nc_close(nc)
-  
-  # reorder longitudes to centre on Greenwidch
-  block <- block[c(rank_lon[lon>180], rank_lon[lon<=180]),,]
-  
+woa <- pbmclapply(vars, function(var) {
+    # prepare storage for one variable at n depths for 4 seasons
+    block <- array(NA, c(360, 180, depth_count, 4))
+
+  for (seas in 1:4) {
+    # define the file to read
+    file <- str_c(woa_loc, "/", var, "_", seas + 12, ".nc")
+    # open the file and read the data in it
+    nc <- nc_open(file)
+    # get depth count (differs between variables)
+    depth_count <- length(ncvar_get(nc, "depth"))
+
+    block[,,1:depth_count,seas] <- ncvar_get(nc, varid=names(nc$var)[6], count = c(360, 180, depth_count, 1))
+    #block[,,,month] <- ncvar_get(nc, varid=names(nc$var)[6])
+    nc_close(nc)
+  }
   return(block)
-}, mc.cores = min(length(files), n_cores))
+}, mc.cores = min(length(vars), n_cores))
 
-# Add variable names, not using original names
-names(glodap) <- c("nitrate", "oxygen", "phosphate", "salinity", "silicate", "alkalinity", "dic", "temperature")
-
-# Correct longitudes from [20.5:379.5] to [-179.5:179.5]
-lon <- ifelse(lon > 360, lon - 360, lon) %>% sort()
-lon <- lon - 180
+# Add variable names
+names(woa) <- vars
+str(woa)
 ```
 
-Plot surface values
+Plot surface values for winter.
 
 ```{r plot_surf}
-image.plot(glodap$temperature[,,1], col = col_temp, main = "Temperature")
-image.plot(glodap$salinity[,,1], col = col_sal, main = "Salinity")
-image.plot(glodap$oxygen[,,1], col = col_oxy, main = "Oxygen")
-image.plot(glodap$nitrate[,,1], col = col_nit, main = "Nitrate")
-image.plot(glodap$phosphate[,,1], col = col_phos, main = "Phosphate")
-image.plot(glodap$silicate[,,1], col = col_sil, main = "Silicate")
-image.plot(glodap$alkalinity[,,1], col = col_alk, main = "Alkalinity")
-image.plot(glodap$dic[,,1], col = col_dic, main = "DIC")
+image.plot(woa$temperature[,,1,1], col = col_temp, main = "Temperature")
+image.plot(woa$salinity[,,1,1], col = col_sal, main = "Salinity")
+image.plot(woa$density[,,1,1], col = col_dens, main = "Density")
+image.plot(woa$mld[,,1,1], col = col_depth, main = "MLD")
+image.plot(woa$oxygen[,,1,1], col = col_oxy, main = "Oxygen")
+image.plot(woa$aou[,,1,1], col = col_aou, main = "AOU")
+image.plot(woa$nitrate[,,1,1], col = col_nit, main = "Nitrate")
+image.plot(woa$phosphate[,,1,1], col = col_phos, main = "Phosphate")
+image.plot(woa$silicate[,,1,1], col = col_sil, main = "Silicate")
 ```
 
-### MLD and pycnocline
+### Compute clines
 
-#### Density from T and S
+#### Thermocline
 
-```{r comp_dens}
-# Compute pressure rather than depth
-press <- array(NA, dim = dim(glodap$temperature)[1:3])
+```{r thermo}
+thermo <- pbmclapply(1:4, function(m) { # in parallel
+  apply(woa$temperature[,,,m], c(1,2), function(temp) {
+    # check number of available data points
+    ok <- !is.na(temp)
+    if (sum(ok) > 3) {
+      # sequence of regular depth for interpolation
+      depths_i <- seq(0, max_depth_woa, by = 5) 
+      # interpolate temperature on 5 m steps
+      temp_i <- interpolate(depth[ok], temp[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute thermocline depth
+      ok <- !is.na(temp_i)
+      pyc <- clined(temp_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+    } else {
+      pyc <- NA
+    }
+    return(pyc)
+  })
+}, mc.cores = n_cores)  # looooong, even in parallel
+walk(thermo, image.plot, col = col_depth)
 
-# compute for one longitude
-for (j in seq(along = lat)) {
-  press[1,j,] <- swPressure(depth[1:depth_count], latitude = lat[j])
-}
-# replicate for all longitudes
-for (i in seq(along = lon)) {
-  press[i,,] <- press[1,,]
-}
+# smooth the result to avoid local artefacts
+thermo <- lapply(thermo, function(x) {
+  xs <- image.smooth(x, theta = 1)$z
+  return(xs)
+})
+walk(thermo, image.plot, col = col_depth)
 
-# derive potential density anomaly using oce package
-dens <- array(NA, dim = dim(glodap$temperature)[1:3])
-for (i in seq(along = lon)) {
-  for (j in seq(along = lat)) {
-    dens[i,j,] <- swSigma0(
-      glodap$salinity[i,j,],
-      glodap$temperature[i,j,],
-      press[i,j,], lon[i], lat[j]
-      )
-  }
-}
-glodap$density <- dens
+# combine all months into a matrix
+thermo <- do.call(abind, list(thermo, along = 3))
 ```
 
-Plot surface density in  Jan.
-
-```{r plot_dens}
-image.plot(glodap$density[,,1], col = col_dens, main = "Density")
-```
-
-#### Density clines
+#### Pycnocline
 
 For this, we use data down to `r max_depth_woa` metres.
 
-Let’s start by just selecting a few profiles, compute both MLD and pycnocline and plot them.
-
-```{r test_dens_clines}
-# Select profiles regurlarly spaced in lon
-sub <- data.frame()
-for (y in c(30, 60, 90, 120, 170)) {
-    sub <- bind_rows(sub, data.frame(dens = glodap$density[50,y,], y = y))
-}
-
-# Compute clines for these profiles
-ssub <- sub %>%
-  # group by lon and month
-  group_by(y) %>%
-  do({
-    d <- .$dens # get density
-    ok <- !is.na(d) # drop NAs
-    # sequence of regular depth for interpolation
-    depths_i <- seq(0, max_depth_woa, by = 5) 
-    # interpolate density on these depths
-    dens_i <- interpolate(depth[ok], d[ok], depths_i, method = "spline", extrapolate=FALSE)
-    # compute pycnocline, i.e. maximum variance using a moving window
-    pyc <- clined(dens_i, depths_i, n.smooth = 2, k = 4)
-    # compute MLD
-    mld <- mld(dens_i, depths_i, ref.depths = 0:15, n.smooth = 2, k = 4)
-    # store all this in a dataframe
-    data.frame(depth = depths_i, dens = dens_i, pyc = pyc, mld = mld, id = str_c(.$y[1]))
-})
-
-# Plots results
-ggplot(ssub) +
-  geom_path(aes(x = dens, y = -depth)) +
-  geom_hline(aes(yintercept = -pyc), data = distinct(ssub, id, pyc), colour="red") +
-  geom_hline(aes(yintercept = -mld), data = distinct(ssub, id, mld), colour="blue") +
-  facet_wrap(~id)
-```
-
-The pycnocline seems more appropriate than the MLD, but let’s compute both for all profiles.
-
-```{r clines_dens}
-# for each pixel of each month, interpolate density over depth and derive pycnocline depth
-depths_i <- seq(0, max_depth_woa, by = 5)
-
-clines <- mclapply(1:length(lon), function(l){
-  apply(glodap$density[l,,], 1, function(dens){
+```{r pycno}
+pycno <- pbmclapply(1:4, function(m) { # in parallel
+  apply(woa$density[,,,m], c(1,2), function(dens) {
+    # check number of available data points
     ok <- !is.na(dens)
-
-      if (sum(ok) > 3) {
+    if (sum(ok) > 3) {
+      # sequence of regular depth for interpolation
+      depths_i <- seq(0, max_depth_woa, by = 5) 
       # interpolate density on 5 m steps
-      dens_i <- castr::interpolate(depth[ok], dens[ok], depths_i, method = "spline", extrapolate = FALSE)
-      # compute pycnocline and MLD
+      dens_i <- interpolate(depth[ok], dens[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute pycnocline depth
       ok <- !is.na(dens_i)
       pyc <- clined(dens_i[ok], depths_i[ok], n.smooth = 2, k = 4)
-      mld <- mld(dens_i, depths_i, ref.depths = 0:15, n.smooth = 2, k = 4)
     } else {
       pyc <- NA
-      mld <- NA
     }
-    return(c(pyc = pyc, mld = mld))
+    return(pyc)
   })
-  
-}, mc.cores = n_cores)
+}, mc.cores = n_cores)  # looooong, even in parallel
+walk(pycno, image.plot, col = col_depth)
 
-# Retrieve pyc and mld from result
-pyc <- lapply(clines, function(l){l[1,]})
-mld <- lapply(clines, function(l){l[2,]})
+# smooth the result to avoid local artefacts
+pycno <- lapply(pycno, function(x) {
+  xs <- image.smooth(x, theta = 1)$z
+  return(xs)
+})
+walk(pycno, image.plot, col = col_depth)
 
-# Bind lists together
-pyc <- do.call(rbind, pyc)
-mld <- do.call(rbind, mld)
-
-# Smooth the result
-pyc <- image.smooth(pyc, theta = 1)$z
-mld <- image.smooth(mld, theta = 1)$z
-
-# Plot
-image(pyc, col = col_depth, main = "Pycnocline")
-image(mld, col = col_depth, main = "MLD")
+# combine all months into a matrix
+pycno <- do.call(abind, list(pycno, along = 3))
 ```
 
-We should also check the distribution of these values.
-
-```{r hist_clines}
-hist(pyc, breaks = 100, main = "Pycnocline")
-hist(mld, breaks = 100, main = "MLD")
-```
-
-Seems to have lots of artefacts near the surface with MLD computation. Below we will try the MLD climatology from Argo Mixed Layers.
-
-### Nutriclines
+#### Nutriclines
 
 Let’s now compute clines for nitrates, phosphates and silicates.
 
-#### Nitrates
+##### Nitrate
 
 ```{r nitracline}
-# parallel across lon
-n_cline <- mclapply(1:length(lon), function(l){
-  apply(glodap$nitrate[l,,], 1, function(nit){
+n_cline <- pbmclapply(1:4, function(m) { # in parallel
+  apply(woa$nitrate[,,,m], c(1,2), function(nit) {
+    # check number of available data points
     ok <- !is.na(nit)
-
-      if (sum(ok) > 3) {
-      # interpolate on 5 m steps
-      nit_i <- castr::interpolate(depth[ok], nit[ok], depths_i, method = "spline", extrapolate = FALSE)
-      # compute cline
+    if (sum(ok) > 3) {
+      # sequence of regular depth for interpolation
+      depths_i <- seq(0, max_depth_woa, by = 5) 
+      # interpolate nitrate on 5 m steps
+      nit_i <- interpolate(depth[ok], nit[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute nitracline depth
       ok <- !is.na(nit_i)
-      cline <- clined(nit_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+      pyc <- clined(nit_i[ok], depths_i[ok], n.smooth = 2, k = 4)
     } else {
-      cline <- NA
+      pyc <- NA
     }
-    return(cline)
+    return(pyc)
   })
-  
-}, mc.cores = n_cores)
+}, mc.cores=n_cores)  # looooong, even in parallel
+walk(n_cline, image.plot, col = col_depth)
 
-# Bind lists
-n_cline <- do.call(rbind, n_cline)
+# smooth the result to avoid local artefacts
+n_cline <- lapply(n_cline, function(x) {
+  xs <- image.smooth(x, theta = 1)$z
+  return(xs)
+})
+walk(n_cline, image.plot, col = col_depth)
 
-# Smooth
-n_cline <- image.smooth(n_cline, theta = 1)$z
-
-# Plot
-image(n_cline, col = col_depth, main = "Nitracline")
+# combine all months into a matrix
+n_cline <- do.call(abind, list(n_cline, along = 3))
 ```
 
-#### Phosphates
+##### Phosphate
 
 ```{r phosphacline}
-# parallel across lon
-p_cline <- mclapply(1:length(lon), function(l){
-  apply(glodap$phosphate[l,,], 1, function(phos){
+p_cline <- pbmclapply(1:4, function(m) { # in parallel
+  apply(woa$phosphate[,,,m], c(1,2), function(phos) {
+    # check number of available data points
     ok <- !is.na(phos)
-
-      if (sum(ok) > 3) {
-      # interpolate on 5 m steps
-      phos_i <- castr::interpolate(depth[ok], phos[ok], depths_i, method = "spline", extrapolate = FALSE)
-      # compute cline
+    if (sum(ok) > 3) {
+      # sequence of regular depth for interpolation
+      depths_i <- seq(0, max_depth_woa, by = 5) 
+      # interpolate phosphate on 5 m steps
+      phos_i <- interpolate(depth[ok], phos[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute phosphacline depth
       ok <- !is.na(phos_i)
-      cline <- clined(phos_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+      pyc <- clined(phos_i[ok], depths_i[ok], n.smooth = 2, k = 4)
     } else {
-      cline <- NA
+      pyc <- NA
     }
-    return(cline)
+    return(pyc)
   })
-  
-}, mc.cores = n_cores)
+}, mc.cores=n_cores)  # looooong, even in parallel
+walk(p_cline, image.plot, col = col_depth)
 
-# Bind lists
-p_cline <- do.call(rbind, p_cline)
+# smooth the result to avoid local artefacts
+p_cline <- lapply(p_cline, function(x) {
+  xs <- image.smooth(x, theta = 1)$z
+  return(xs)
+})
+walk(p_cline, image.plot, col = col_depth)
 
-# Smooth
-p_cline <- image.smooth(p_cline, theta = 1)$z
-
-# Plot
-image(p_cline, col = col_depth, main = "Phosphacline")
+# combine all months into a matrix
+p_cline <- do.call(abind, list(p_cline, along = 3))
 ```
 
-#### Silicates
+##### Silicate
 
 ```{r silicacline}
-# parallel across lon
-s_cline <- mclapply(1:length(lon), function(l){
-  apply(glodap$silicate[l,,], 1, function(sil){
+s_cline <- pbmclapply(1:4, function(m) { # in parallel
+  apply(woa$silicate[,,,m], c(1,2), function(sil) {
+    # check number of available data points
     ok <- !is.na(sil)
-
-      if (sum(ok) > 3) {
-      # interpolate on 5 m steps
-      sil_i <- castr::interpolate(depth[ok], sil[ok], depths_i, method = "spline", extrapolate = FALSE)
-      # compute cline
+    if (sum(ok) > 3) {
+      # sequence of regular depth for interpolation
+      depths_i <- seq(0, max_depth_woa, by = 5) 
+      # interpolate silicate on 5 m steps
+      sil_i <- interpolate(depth[ok], sil[ok], depths_i, method = "spline", extrapolate = FALSE)
+      # compute phosphacline depth
       ok <- !is.na(sil_i)
-      cline <- clined(sil_i[ok], depths_i[ok], n.smooth = 2, k = 4)
+      pyc <- clined(sil_i[ok], depths_i[ok], n.smooth = 2, k = 4)
     } else {
-      cline <- NA
+      pyc <- NA
     }
-    return(cline)
+    return(pyc)
   })
-  
-}, mc.cores = n_cores)
+}, mc.cores=n_cores)  # looooong, even in parallel
+walk(s_cline, image.plot, col = col_depth)
 
-# Bind lists
-s_cline <- do.call(rbind, s_cline)
+# smooth the result to avoid local artefacts
+s_cline <- lapply(s_cline, function(x) {
+  xs <- image.smooth(x, theta = 1)$z
+  return(xs)
+})
+walk(s_cline, image.plot, col = col_depth)
 
-# Smooth
-s_cline <- image.smooth(s_cline, theta = 1)$z
-
-# Plot
-image(s_cline, col = col_depth, main = "Silicacline")
+# combine all months into a matrix
+s_cline <- do.call(abind, list(s_cline, along = 3))
 ```
 
 ### Average over surface layer
@@ -317,11 +414,11 @@ image(s_cline, col = col_depth, main = "Silicacline")
 For each variable, compute the average in the surface layer, i.e. from `r min(depth)` to `r layer_bottom` m.
 
 ```{r avg_surf}
-env <- mclapply(names(glodap), function(var) {
+env <- mclapply(names(woa), function(var) {
   message(var)
 
   # extract variable
-  X <- glodap[[var]]
+  X <- woa[[var]]
 
   # prepare storage
   res <- array(NA, dim(X)[-3])
@@ -341,7 +438,7 @@ env <- mclapply(names(glodap), function(var) {
 }, mc.cores = min(length(vars), n_cores))
 
 # Add variable names
-names(env) <- names(glodap)
+names(env) <- names(woa)
 ```
 
 ## MLD Argo Mixed Layers
