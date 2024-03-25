@@ -48,9 +48,6 @@ df_doc <- df_doc_raw %>%
     press = `ctd pressure`,
     doc, doc_flag_w
   )
-
-# Keep only observations in the 0-10 m range
-df_doc <- df_doc %>% filter(between(press, 0, 10))
 ```
 
 ## Clean
@@ -65,7 +62,8 @@ What values are ok for flags? Should we remove bottles that are `-999`?
 
 ```{r clean_doc}
 df_doc <- df_doc %>%
-  filter(!date %in% c(-999, 0)) %>% # missing date
+  filter(!date %in% c(-999, 0)) %>% # missing data
+  filter(press != -999) %>% # missing depth
   filter(!bottle_flag_w %in% c(-999, 9)) %>% # bottle flag is ok
   filter(doc_flag_w != 9) %>% # flag is ok
   filter(doc > 0) %>% # doc is positive
@@ -96,7 +94,27 @@ df_doc <- df_doc %>%
     )
 ```
 
-## Average by pixel across the layer
+## Assign observations to layers
+
+DOC observations are separated in 3 layers:
+
+-   surface (depth ⩽ `r surface_bottom`)
+
+-   mesopelagic (depth \> `r meso_top` & depth ⩽ `r meso_bottom`)
+
+-   surface (depth \> `r meso_bottom`)
+
+```{r to_layers}
+df_doc <- df_doc %>% 
+  mutate(layer = case_when(
+    press <= surface_bottom ~ "surf",
+    press > meso_top & press <= meso_bottom ~ "meso",
+    press > meso_bottom ~ "bathy",
+  )) %>% 
+  filter(!is.na(layer)) # drop observations not assigned to any layer
+```
+
+## Average by pixel across the layers
 
 ### Annual
 
@@ -107,7 +125,7 @@ df_doc_ann <- df_doc %>%
     lon = roundp(lon, precision = 1, f = floor) + 0.5,
     lat = roundp(lat, precision = 1, f = floor) + 0.5
   ) %>%
-  group_by(lon, lat) %>%
+  group_by(lon, lat, layer) %>%
   summarise(
     # compute mean and sd
     doc_mean = mean(doc),
@@ -123,61 +141,22 @@ Let’s plot some maps.
 #| fig-column: body-outset
 #| out-width: 100%
 # Number of observations
-ggmap(df_doc_ann, "n_obs", type = "point") +
-  ggplot2::scale_colour_viridis_c(option = "cividis", trans = "log10", direction = -1) +
-  ggtitle("Number of observations")
+ggmap(df_doc_ann, "n_obs", type = "point", palette = ggplot2::scale_colour_viridis_c(option = "cividis", trans = "log10", direction = -1)) +
+  ggtitle("Number of observations") +
+  facet_wrap(~layer, ncol = 2)
 
 # DOC mean
-ggmap(df_doc_ann, "doc_mean", type = "point") + 
-  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10") +
-  ggtitle("DOC mean")
+ggmap(df_doc_ann, "doc_mean", type = "point", palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10")) + 
+  ggtitle("DOC mean") +
+  facet_wrap(~layer, ncol = 2)
 
 # DOC sd
-ggmap(df_doc_ann, "doc_sd", type = "point") + 
-  ggplot2::scale_colour_viridis_c() +
-  ggtitle("DOC sd")
+ggmap(df_doc_ann, "doc_sd", type = "point", palette = ggplot2::scale_colour_viridis_c()) + 
+  ggtitle("DOC sd") +
+  facet_wrap(~layer, ncol = 2)
 ```
 
-### Monthly
-
-```{r month}
-df_doc_m <- df_doc %>% 
-  mutate(month = month(date)) %>% # compute month from date
-  # generate montly average by pixel
-  mutate(
-    # floor and add 0.5 because other env data are on the centre of each pixel
-    lon = roundp(lon, precision = 1, f = floor) + 0.5,
-    lat = roundp(lat, precision = 1, f = floor) + 0.5
-  ) %>%
-  group_by(lon, lat, month) %>%
-  summarise(
-    # compute mean and sd
-    doc_mean = mean(doc),
-    doc_sd = sd(doc),
-    n_obs = n(),
-    .groups = "drop"
-  )
-
-# number of observations per month
-ggplot(df_doc_m) + geom_bar(aes(x = month)) + scale_x_continuous(n.breaks = 11, expand = c(0,0))
-```
-
-No big hols in terms of number of observations. Let’s have a look at montly maps.
-
-```{r m_doc_maps}
-#| fig-column: screen-inset
-#| out-width: 100%
-#| fig-width: 10
-#| fig-height: 5
-ggmap(df_doc_m, "doc_mean", type = "point") + 
-  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10") +
-  facet_wrap(~month) +
-  ggtitle("DOC mean by month")
-```
-
-As expected, very few observations during winter at high latitudes.
-
-### Seasonal
+### Seasonal (surface layer only)
 
 Seasons are defined as:
 
@@ -191,6 +170,7 @@ Seasons are defined as:
 
 ```{r season}
 df_doc_s <- df_doc %>% 
+  filter(layer == "surf") %>% 
   mutate(season = quarter(date, fiscal_start = 12)) %>% 
   # generate seasonal average by pixel
   mutate(
@@ -224,15 +204,17 @@ ggmap(df_doc_s, "doc_mean", type = "point") +
   ggtitle("DOC mean by season")
 ```
 
-Same problem of winter at high latitudes.
-
-::: callout-note
-For now, we will focus on annual data only.
-:::
+Few observations during winter at high latitudes. Will see what we can do.
 
 ## Save DOC data
 
 ```{r save}
-df_doc <- df_doc_ann
+# Join annual and seasonnal observations together
+df_doc <- bind_rows(
+  df_doc_ann %>% mutate(season = 0, .after = lat),
+  df_doc_s %>% mutate(layer = "surf", .after = season)
+)
+
+# Save
 save(df_doc, file = "data/01.doc_data.Rdata")
 ```

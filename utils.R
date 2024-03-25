@@ -192,6 +192,37 @@ read_clim <- function(file, var, yearly = TRUE){
   return(data)
 }
 
+## Convert monthly data to seasonal data ----
+#--------------------------------------------------------------------------#
+#' Convert monthly data to seasonal data
+#'
+#' Given a dataset that is a 3D array (with 3rd dimensions as month) of observations in lon and lat,
+#' returns a list of 4 (i.e. seasonal) of observations in lon and lat. 
+#' For each season in "[1:4]", months can be computed as "(seas * 3 - 2):(seas * 3)"
+#'  eg: season 1 is months 1 to 3, season 2 is months 4 to 6…
+#'
+#' @param data a 3D array, with 3rd dimension as month
+#' @param to_array whether to return an array
+#'
+#' @return a list of 4 OR a 3D array
+#'
+#' @examples npp_seas <- month_to_seas(npp_month)
+month_to_seas <- function(data, to_array = FALSE){
+  # List seasons
+  seas <- c(1, 2, 3, 4)
+  
+  # For each season, compute mean across appropriate months
+  res <- mclapply(seas, function(s) {
+    apply(data[,,(s * 3 - 2):(s * 3)], c(1,2), mean, na.rm = TRUE)
+  }, mc.cores = 4)
+  
+  if (to_array) {
+    res <- do.call(abind, list(res, along = 3))
+  }
+  
+  return(res)
+}
+
 
 ## Plot a nice ggplot map ----
 #--------------------------------------------------------------------------#
@@ -228,6 +259,8 @@ ggmap <- function(df, var, type = c("raster", "point"), land = TRUE, palette = N
   ## Palettes
   # To look for palette, remove "_mean" in case we are working with annual climatology values
   var_pal <- str_remove(var, "_mean")
+  # Remove also anything after "."
+  var_pal <- str_split(var_pal, "\\.")[[1]][1]
 
   # If no palette is supplied, generate one
   if(is.null(palette)){
@@ -238,7 +271,7 @@ ggmap <- function(df, var, type = c("raster", "point"), land = TRUE, palette = N
       "temperature", scale_fill_cmocean(name = "thermal", na.value = NA),                    scale_colour_cmocean(name = "thermal", na.value = NA),
       "salinity",    scale_fill_cmocean(name = "haline", na.value = NA),                     scale_colour_cmocean(name = "haline", na.value = NA),
       "density",     scale_fill_cmocean(name = "dense", na.value = NA),                      scale_colour_cmocean(name = "dense", na.value = NA),
-      "oxygen",      scale_fill_distiller(palette = "Blues", na.value = NA),                 scale_colour_distiller(palette = "Blues", na.value = NA),
+      "oxygen",      scale_fill_distiller(palette = "Blues", na.value = NA, direction = 1),  scale_colour_distiller(palette = "Blues", na.value = NA, direction = 1),
       "nitrate",     scale_fill_cmocean(name = "tempo", na.value = NA),                      scale_colour_cmocean(name = "tempo", na.value = NA),
       "phosphate",   scale_fill_distiller(palette = "BuPu", na.value = NA, direction = 1),   scale_colour_distiller(palette = "BuPu", na.value = NA, direction = 1),
       "silicate",    scale_fill_distiller(palette = "PuBu", na.value = NA, direction = 1),   scale_colour_distiller(palette = "PuBu", na.value = NA, direction = 1),
@@ -246,7 +279,8 @@ ggmap <- function(df, var, type = c("raster", "point"), land = TRUE, palette = N
       "par",         scale_fill_cmocean(name = "solar", na.value = NA),                      scale_colour_cmocean(name = "solar", na.value = NA),
       "mld",         scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "mld_argo",    scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
-      "pyc",         scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
+      "thermo",       scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
+      "pycno",       scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "z_eu",        scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "s_cline",     scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "p_cline",     scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),

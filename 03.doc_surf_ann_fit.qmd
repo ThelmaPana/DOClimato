@@ -1,5 +1,5 @@
 ---
-title: "Predict DOC from env data."
+title: "Predict annual surface DOC."
 subtitle: "Fit a XGBoost model to predict DOC from environmental data and apply it to new data."
 author: "Thelma Panaïotis"
 format:
@@ -18,10 +18,18 @@ execute:
 #|output: false
 source("utils.R")
 load("data/02.all_data.Rdata")
-output_filename <- "data/03.doc_from_env_nested_cv.Rdata"
+output_filename <- "data/03.doc_surf_ann_pred.Rdata"
 ```
 
 ## Data preparation
+
+### Timescale & layer
+
+```{r filter}
+## Keep only annual data, in the surface layer
+df_all <- df_all %>% filter(layer == "surf" & season == 0)
+df_env <- df_env %>% filter(layer == "surf" & season == 0)
+```
 
 ### Variable roles
 
@@ -29,18 +37,7 @@ output_filename <- "data/03.doc_from_env_nested_cv.Rdata"
 # Response variable
 resp_var <- c("doc_log", "doc") # keep both untransformed and transformed predictor
 # Explanatory variables
-exp_vars <- df_all %>% select(nitrate:par) %>% colnames()
-#exp_vars <- df_all %>% 
-#  select(
-#    temperature,
-#    phosphate,
-#    silicate,
-#    alkalinity,
-#    dic,
-#    npp,
-#    oxygen
-#  ) %>%
-#  colnames()
+exp_vars <- df_all %>% select(bbp:par) %>% colnames()
 # Metadata
 meta_vars <- c("lon", "lat")
 ```
@@ -70,6 +67,13 @@ ggplot(df) + geom_histogram(aes(x = doc_log), bins = 100)
 ```
 
 Not too bad! Let’s proceed.
+
+```{r}
+ggplot(df) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_point(aes(x = lon, y = lat, colour = doc), size = 0.5) +
+  coord_quickmap(expand = 0)
+```
 
 ## Data split
 

@@ -411,26 +411,59 @@ s_cline <- do.call(abind, list(s_cline, along = 3))
 
 ### Average over surface layer
 
-For each variable, compute the average in the surface layer, i.e. from `r min(depth)` to `r layer_bottom` m.
+For each variable measured along depth, compute the average in
 
-```{r avg_surf}
-env <- mclapply(names(woa), function(var) {
-  message(var)
+-   the surface layer: `r min(depth)` to `r surface_bottom` m.
+
+-   the mesopelagic layer: `r meso_top` to `r meso_bottom` m
+
+-   the bathypelagic: below `r meso_bottom` m
+
+```{r avg_layers}
+# List variables to process and remove mld (it is a single value per pixel)
+vars <- names(woa)
+vars <- vars[vars != "mld"]
+
+env_m <- pbmclapply(vars, function(my_var) {
+  message(my_var)
 
   # extract variable
-  X <- woa[[var]]
+  X <- woa[[my_var]]
 
   # prepare storage
   res <- array(NA, dim(X)[-3])
+  res <- list(surf = res, meso = res, bathy = res)
 
   # for each pixel of each month
   for (i in seq(along = lon)) {
     for (j in seq(along = lat)) {
-        # compute average if 2/3 of data is present
-        keep <- X[i, j, depth <= layer_bottom]
+      for (m in 1:4) {
+        ## Surface data
+        # compute average if 2/3 of data is present (3 values expected in 0-10 m, good to have at least 2 of them)
+        depth_idx <- depth <= surface_bottom # depth indices above 10 m
+        keep <- X[i, j, depth_idx, m]
         if (percent_na(keep) <= 1/3) {
-          res[i, j] <- mean(keep, na.rm=TRUE)
+          res$surf[i, j, m] <- mean(keep, na.rm = TRUE)
          # otherwise just leave the NA value
+        }
+        
+        ## Mesopelagic
+        # compute average if 80% of data is present
+        depth_idx <- depth > meso_top & depth <= meso_bottom  # depth indices between 200 and 1000 m
+        keep <- X[i, j, depth_idx, m]
+        if (percent_na(keep) <= 0.2) {
+          res$meso[i, j, m] <- mean(keep, na.rm = TRUE)
+         # otherwise just leave the NA value
+        }
+        
+        ## Bathypelagic
+        # compute average if at least 3 values are present
+        depth_idx <- depth > meso_bottom # depth indices between 200 and 1000 m
+        keep <- X[i, j, depth_idx, m]
+        if (sum(!is.na(keep)) > 2) {
+          res$bathy[i, j, m] <- mean(keep, na.rm = TRUE)
+         # otherwise just leave the NA value
+        }
       }
     }
   }
@@ -438,47 +471,15 @@ env <- mclapply(names(woa), function(var) {
 }, mc.cores = min(length(vars), n_cores))
 
 # Add variable names
-names(env) <- names(woa)
+names(env_m) <- vars
+
+# flatten and keep layers next to each other
+env_m <- unlist(env_m, recursive = FALSE)
 ```
 
-## MLD Argo Mixed Layers
+## Other climatologies
 
-Let’s try data from Argo Mixed Layers: <http://mixedlayer.ucsd.edu/>.
-
-This data uses the same grid as WOA, we can combine them together.
-
-```{r read_mld_argo}
-# Open one file to get all coordinates (lon, lat, depth)
-nc <- nc_open("data/raw/mld/Argo_mixedlayers_monthlyclim_04142022.nc")
-
-# Get lon and lat
-lon_arg <- ncvar_get(nc, "lon")
-lat_arg <- ncvar_get(nc, "lat")
-
-# Get MLD values
-mld_argo <- ncvar_get(nc, "mld_da_mean")
-
-# Close the file
-nc_close(nc)
-
-# Reorder dimensions
-mld_argo <- aperm(mld_argo, c(2,3,1))
-
-# Compute yearly from monthly
-mld_argo <- apply(mld_argo, c(1,2), mean, na.rm = TRUE)
-
-# Smooth
-#mld_argo <- image.smooth(mld_argo, theta = 1)$z
-
-# Plot
-image.plot(mld_argo, col = col_depth)
-```
-
-This is better, we will clean inland data below.
-
-## Various climatologies
-
-### Misc
+### Misc from satellite
 
 Easy one: read the `.mat` file, reshape `lon` vs `lat` and reverse `lat`. The grid is already 1°×1°×12 months.
 
@@ -487,29 +488,40 @@ Check grid definition
 :::
 
 ```{r clims_cael}
-npp <- read_clim("data/raw/clim4cael.mat", "cafes")
-image(npp, col = col_npp, main = "NPP (cafe)")
+# List variables available in climatology
+clim <- readMat("data/raw/clim4cael.mat")
+vars <- names(clim)
+vars <- vars[vars != "cbpm"] # ignore cbpm, we will use cafes
 
-z_eu <- read_clim("data/raw/clim4cael.mat", "z.eu")
-image(z_eu, col = col_depth, main = "Euphotic depth")
+clim <- pbmclapply(vars, function(my_var) {
+  # Read data for variables
+  data <- read_clim("data/raw/clim4cael.mat", my_var, yearly = FALSE)
+  # Convert from monthly to seasonal
+  data <- month_to_seas(data, to_array = TRUE)
+  return(data)
+}, mc.cores = n_cores)
+# set nice names
+names(clim) <- c("bbp", "npp", "fmicro", "log_chl", "z_eu")
 
-bbp <- read_clim("data/raw/clim4cael.mat", "bbp")
-image(bbp, col = col_bbp, main = "BBP")
+## Others climatology to read: picpod and PSD_slope
+pic <- read_clim("data/raw/picpoc.mat", "pic", yearly = FALSE)
+clim$pic <- month_to_seas(pic, to_array = TRUE)
 
-fmicro <- read_clim("data/raw/clim4cael.mat", "fmicro")
-image(fmicro, col = col_fmicro, main = "Fmicro")
+poc <- read_clim("data/raw/picpoc.mat", "poc", yearly = FALSE)
+clim$poc <- month_to_seas(poc, to_array = TRUE)
 
-log_chl <- read_clim("data/raw/clim4cael.mat", "logChl")
-image(log_chl, col = col_chl, main = "log(Chl)")
+psd <- read_clim("data/raw/PSD_slope.mat", "Xi", yearly = FALSE)
+clim$psd <- month_to_seas(psd, to_array = TRUE)
 
-pic <- read_clim("data/raw/picpoc.mat", "pic")
-image(pic, col = col_pic, main = "PIC")
-
-#poc <- read_clim("data/raw/picpoc.mat", "poc")
-#image(poc, col = col_poc, main = "POC")
-
-psd <- read_clim("data/raw/PSD_slope.mat", "Xi")
-image(psd, col = col_psd, main = "Phyto PSD slope")
+# Plot seasonal maps
+apply(clim$npp, 3, image.plot, col = col_npp, main = "NPP (cafe)")
+apply(clim$z_eu, 3, image.plot, col = col_depth, main = "Euphotic depth")
+#apply(clim$bpp, 3, image.plot, col = col_bbp, main = "BBP")
+apply(clim$fmicro, 3, image.plot, col = col_fmicro, main = "Fmicro")
+apply(clim$log_chl, 3, image.plot, col = col_chl, main = "log(Chl)")
+apply(clim$pic, 3, image.plot, col = col_pic, main = "PIC")
+apply(clim$poc, 3, image.plot, col = col_poc, main = "POC")
+apply(clim$psd, 3, image.plot, col = col_psd, main = "Phyto PSD slope")
 ```
 
 ### Irradiance data
@@ -532,39 +544,40 @@ Now let’s read all files.
 ```{r read_all_par}
 # List par files
 par_files <- list.files("data/raw/modis", full.names = TRUE, pattern = ".nc")
+# Get months from file names, NB this is important because the order is not trivial!
+par_months <- par_files %>% str_extract("[:digit:]{6}") %>% str_extract("[:digit:]{2}$")
+# Reorder par files
+par_files <- par_files[order(par_months)]
 
-# Initiate empty storage for PAR
-par <- array(NA, c(length(lon_par), length(lat_par), 12))
-
-# Loop over months
-for(m in 1:12){
+# Read files for each month
+par <- mclapply(1:12, function(m) {
   # open nc file
   nc <- nc_open(par_files[m])
   # read par values for a given month
   par_m <- ncvar_get(nc, "par")
   # reorder latitudes
-  par[,,m] <- par_m[, ncol(par_m):1]
+  par_m <- par_m[, ncol(par_m):1]
   # close file
   nc_close(nc)
-}
+  return(par_m)
+})
+# convert list to matrix
+par <- do.call(abind, list(par, along = 3))
 
-# From monthly to yearly, parallel on longitude
-par <- mclapply(1:dim(par)[1], function(l){
-  par_l <- par[l,,]
-  apply(par_l, 1, mean, na.rm = TRUE)
-}, mc.cores = n_cores)
-
-par <- do.call(rbind, par)
+# Convert monthly to seasonal
+par <- month_to_seas(par, to_array = TRUE)
 ```
 
-PAR values are stored in a `r dim(par)[1]` by `r dim(par)[2]` by `r dim(par)[3]`array. To downgrade the grid, we first need to convert this data to a dataframe. Let’s process in parallel by month. For each month, floor `lon` and `lat` to 1° and add 0.5 to get the center of every pixel of the 1°×1° grid, then average PAR value per grid cell.
+PAR values are stored in a `r dim(par)[1]` by `r dim(par)[2]` by `r dim(par)[3]`array. To downgrade the grid, we first need to convert this data to a dataframe. Let’s process in parallel by season. For each season, floor `lon` and `lat` to 1° and add 0.5 to get the center of every pixel of the 1°×1° grid, then average PAR value per grid cell.
 
 ```{r downgrade_par}
-dimnames(par) <- list(lon_par, lat_par)
+# add dimension names
+dimnames(par) <- list(lon_par, lat_par, 1:4)
+
 # melt to dataframe
 df_par <- reshape2::melt(par) %>%
   as_tibble() %>%
-  rename(lon = Var1, lat = Var2, par = value)
+  rename(lon = Var1, lat = Var2, season = Var3, par = value)
   
 # Round lon and lat to 1 degree and average per grid cell
 df_par <- df_par %>%
@@ -572,88 +585,92 @@ df_par <- df_par %>%
     lon = roundp(lon, precision = 1, f = floor) + 0.5,
     lat = roundp(lat, precision = 1, f = floor) + 0.5
   ) %>%
-  group_by(lon, lat) %>%
-  summarise(par = mean(par, na.rm = TRUE)) %>%
+  group_by(lon, lat, season) %>%
+  summarise(par = mean(par, na.rm = TRUE), .groups = "drop") %>%
   ungroup()
 
 # Plot map
-ggmap(df_par, "par", type = "raster")
+ggmap(df_par, "par", type = "raster") + facet_wrap(~season)
 ```
 
 ## Combine all env variables
 
-Let’s combine array formatted env variables together, i.e. all variables except for PAR data.
+Let’s combine array formatted env variables together.
 
 ```{r combine}
-# Pycnocline and MLD
-env$pyc <- pyc
-env$mld <- mld
-env$mld_argo <- mld_argo
+# Join layer-wise data and surface data
+env_m <- c(env_m, clim)
 
-# Nutriclines
-env$n_cline <- n_cline
-env$p_cline <- p_cline
-env$s_cline <- s_cline
+# Add MLD
+# NB: MLD data was read similarly to other WOA data, i.e. depth wise, which does not make sense for MLD because we have only 1 value per pixel. 
+# Thus, let’s retain only the first depth, which contains the MLD value for each pixel
+mld <- woa$mld[,,1,] # first depth
+dim(mld) # lon * lat * season: perfect!
+env_m$mld <- mld
 
-# Other climatologies
-env$z_eu    <- z_eu
-env$npp     <- npp
-env$bbp    <- bbp
-env$fmicro  <- fmicro
-env$log_chl <- log_chl
-env$pic     <- pic
-env$psd     <- psd
-
+# Add other clines
+env_m$thermo <- thermo
+env_m$pycno <- pycno
+env_m$n_cline <- n_cline
+env_m$p_cline <- p_cline
+env_m$s_cline <- s_cline
 
 # Clean dimnames
-dimnames(env$pyc)      <- NULL
-dimnames(env$mld)      <- NULL
-dimnames(env$mld_argo) <- NULL
-dimnames(env$n_cline)  <- NULL
-dimnames(env$p_cline)  <- NULL
-dimnames(env$s_cline)  <- NULL
-dimnames(env$z_eu)     <- NULL
-dimnames(env$npp)      <- NULL
-dimnames(env$bbp)      <- NULL
-dimnames(env$fmicro)   <- NULL
-dimnames(env$log_chl)  <- NULL
-dimnames(env$pic)      <- NULL
-dimnames(env$psd)      <- NULL
+env_m <- lapply(env_m, function(el) {
+  dimnames(el) <- NULL
+  return(el)
+})
+str(env_m)
+# Same dim for everyone, perfect!
 ```
 
 ## Convert to dataframe
 
 ```{r to_df}
 # unroll each matrix
-env_v <- lapply(env, function(e) { as.vector(e) })
+env_v <- lapply(env_m, function(e) {as.vector(e)})
 # combine as columns
-df_env <- do.call(cbind, env_v) %>% as.data.frame() %>% setNames(names(env_v))
+df_env_m <- do.call(cbind, env_v) %>% as.data.frame() %>% setNames(names(env_v))
 
 # add coordinates (NB: shorter elements are recycled automatically)
-df_env$lon <- lon
-df_env$lat <- rep(lat, each=length(lon))
+df_env_m$lon <- lon
+df_env_m$lat <- rep(lat, each = length(lon))
+df_env_m$season <- rep(1:4, each = length(lon)*length(lat))
+
+# Remove nutrients in the bathypelagic as these are only NAs and convert to tibble
+df_env_m <- df_env_m %>% select(-c(nitrate.bathy, silicate.bathy, phosphate.bathy)) %>% as_tibble()
+
+# Create a column to distinguish between layers
+df_env_m <- df_env_m %>% 
+  select(lon, lat, season, everything()) %>% 
+  pivot_longer(temperature.surf:nitrate.meso) %>% # initially one variable per layer, 
+  separate_wider_delim(name, into = c("variable", "layer"), sep = "\\.") %>% # get layer and variable
+  pivot_wider(names_from = "variable", values_from = "value") %>% # recreate columns from variables
+  select(lon, lat, season, layer, everything())
 ```
 
 Then join with PAR data.
 
 ```{r join_par}
-df_env <- df_env %>% left_join(df_par, by = join_by(lon, lat))
+df_env_m <- df_env_m %>% left_join(df_par, by = join_by(lon, lat, season)) %>% select(lon, lat, season, everything()) %>% as_tibble()
 ```
 
 Let’s do a quick plot to check everything is fine.
 
 ```{r map_temp}
-ggmap(df_env, "temperature", type = "raster")
+#| fig-column: body-outset
+#| out-width: 100%
+ggmap(df_env_m, "temperature", type = "raster") + facet_grid(season~layer)
 ```
 
 ## Remove internal seas, lakes and land
 
 ```{r inland}
 # determine which points are in land
-lons <- df_env$lon
-lats <- df_env$lat
+lons <- df_env_m$lon
+lats <- df_env_m$lat
 inland <- sp::point.in.polygon(lons, lats, coast$lon, coast$lat) == 1
-ggplot(df_env) +
+ggplot(df_env_m) +
   geom_raster(aes(x = lon, y = lat, fill = inland)) +
   scale_fill_viridis_d() +
   scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
@@ -668,30 +685,48 @@ inland[between(lons, 20, 50) & between(lats, 41, 50)] <- TRUE
 # remove Baltic Sea too
 inland[between(lons, 12, 30) & between(lats, 52, 66)] <- TRUE
 
-ggplot(df_env) +
+ggplot(df_env_m) +
   geom_raster(aes(x = lon, y = lat, fill = inland)) +
   scale_fill_viridis_d() +
   scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
   coord_quickmap()
 
 # blankout points in land
-df_env[inland, !names(df_env) %in% c("lon", "lat")] <- NA
+df_env_m[inland, !names(df_env_m) %in% c("lon", "lat", "season", "layer")] <- NA
 # NB: this works because `inland` gets automatically repeated for everymonth
 
 # Convert to tibble and reorder columns
-df_env <- df_env %>% as_tibble() %>% select(lon, lat, everything())
+df_env_m <- df_env_m %>% as_tibble() %>% select(lon, lat, everything())
 ```
 
 Plot a few maps without land to check.
 
 ```{r maps_check}
-ggmap(df_env, "temperature", type = "raster", land = FALSE)
-ggmap(df_env, "par", type = "raster", land = FALSE)
-ggmap(df_env, "pyc", type = "raster", land = FALSE)
-ggmap(df_env, "mld_argo", type = "raster", land = FALSE)
+#| fig-column: body-outset
+#| out-width: 100%
+ggmap(df_env_m, "salinity", type = "raster", land = FALSE) + facet_grid(season~layer)
+ggmap(df_env_m, "density", type = "raster", land = FALSE) + facet_grid(season~layer)
+ggmap(df_env_m, "npp", type = "raster", land = FALSE) + facet_grid(season~layer)
+ggmap(df_env_m, "mld", type = "raster", land = FALSE) + facet_grid(season~layer)
 ```
 
 Seems all good!
+
+## Compute annual climatology
+
+```{r to_yearly}
+df_env_ann <- df_env_m %>% 
+  mutate(season = 0) %>% # to yearly
+  group_by(lon, lat, season, layer) %>% 
+  summarise_all(mean, na.rm = TRUE) %>% 
+  ungroup()
+
+# Drop seasonal data for meso and bathy
+df_env_m <- df_env_m %>% filter(layer == "surf")
+
+# Store annual with monthly data
+df_env <- bind_rows(df_env_m, df_env_ann)
+```
 
 ## Save environmental data
 
@@ -701,13 +736,36 @@ save(df_env, file = "data/00.all_env.Rdata")
 
 ## Plot all maps
 
-```{r plot_all}
+### Annual
+
+```{r plot_all_ann}
+#| cache-lazy: false
 # Names of env variables
-var_names <- df_env %>% select(-c(lon, lat)) %>% colnames()
-
+var_names <- df_env %>% select(-c(lon, lat, season, layer)) %>% colnames()
 plot_list <- list()
-for (i in 1:length(var_names)){plot_list[[i]] <- ggmap(df_env, var_names[i], type = "raster")}
-
+for (i in 1:length(var_names)){
+  plot_list[[i]] <- ggmap(
+    df_env %>% filter(season == 0), 
+    var_names[i], 
+    type = "raster"
+  ) +
+  facet_wrap(~layer)
+}
 plot_list
+```
 
+### Seasonal
+
+```{r plot_all_seas}
+#| cache.lazy: false
+plot_list <- list()
+for (i in 1:length(var_names)){
+  plot_list[[i]] <- ggmap(
+    df_env %>% filter(season != 0), 
+    var_names[i], 
+    type = "raster"
+  ) + 
+  facet_wrap(~season)
+}
+plot_list
 ```

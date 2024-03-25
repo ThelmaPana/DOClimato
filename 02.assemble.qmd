@@ -16,32 +16,57 @@ execute:
 source("utils.R")
 ```
 
-## Join env and DOC
+We will create 4 datasets, one for each prediction task:
 
-### Load data
+-   surface annual
+
+-   surface seasonal
+
+-   mesopelagic annual
+
+-   bathypelagic annual
+
+## Load data
 
 ```{r load}
 load("data/00.all_env.Rdata")
 load("data/01.doc_data.Rdata")
+
+# Keep only mean for doc observations
+df_doc <- df_doc %>% select(lon, lat, season, layer, doc = doc_mean)
 ```
 
-### Join
+## Join
 
 ```{r join}
-df_all <- df_env %>% 
-  left_join(df_doc %>% select(lon, lat, doc = doc_mean), by = join_by(lon, lat))
-```
-
-### Plot some maps
-
-```{r maps}
 #| fig-column: body-outset
 #| out-width: 100%
-ggmap(df_env, var = "oxygen", type = "raster") +
-  geom_point(data = df_all %>% filter(!is.na(doc)), aes(x = lon, y = lat), size = 0.5)
+# Join env and doc data
+# Drop points where doc is missing
+df_all <- df_env %>% 
+  left_join(df_doc, by = join_by(lon, lat, season, layer)) %>% 
+  drop_na(doc)
 
-ggmap(df_all, var = "doc", type = "point") + 
-  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10", na.value = NA)
+# Plot annual map by layer
+ggmap(
+  df_all %>% filter(season == 0), 
+  var = "doc", 
+  type = "point", 
+  palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10", na.value = NA)
+) + 
+  ggtitle("Annual by layer") + 
+  facet_wrap(~layer, ncol = 2)
+
+# Plot seasonal map in surface layer
+ggmap(
+  df_all %>% filter(season != 0), 
+  var = "doc", 
+  type = "point", 
+  palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10", na.value = NA)
+) + 
+  ggtitle("Seasonal in surface layer") + 
+  facet_wrap(~season)
+
 ```
 
 ## Some data exploration
@@ -49,32 +74,88 @@ ggmap(df_all, var = "doc", type = "point") +
 ### Response variable
 
 ```{r hist_doc}
-ggplot(df_all) + geom_histogram(aes(x = doc), bins = 100)
+#| fig-column: body-outset
+#| out-width: 100%
+ggplot(df_all) + 
+  geom_histogram(aes(x = doc), bins = 100) + 
+  facet_grid(season~layer, scales = "free")
 ```
 
 DOC distribution has a long-tail. Let’s try a log transformation.
 
 ```{r hist_log_doc}
-ggplot(df_all) + geom_histogram(aes(x = log(doc)), bins = 100)
+#| fig-column: body-outset
+#| out-width: 100%
+ggplot(df_all) + 
+  geom_histogram(aes(x = log(doc)), bins = 100) + 
+  facet_grid(season~layer, scales = "free")
 ```
 
-This is better! Let’s indeed apply the log transformation.
+This is better but we still have some extreme values (e.g. `doc_log > 5`). Let’s see where these values are.
+
+```{r map_high_doc}
+#| fig-column: body-outset
+#| out-width: 100%
+ggplot(df_all) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") + 
+  geom_point(aes(x = lon, y = lat, colour = log(doc) < 5), size = 0.5) +
+  ggplot2::scale_colour_viridis_d() +
+  coord_quickmap(expand = 0) +
+  facet_grid(season~layer)
+```
+
+The very high DOC values are found at high latitudes in the north (Kara Sea and Laptev Sea). Let’s remove them.
+
+-   Kara Sea: 50-100° E, 70-80°N
+
+-   Leptev Sea: 100-150° E, 70-80°N
+
+::: {.callout-note appearance="simple"}
+## TODO
+
+Add a justification for removing these points.
+:::
+
+Set DOC values to NA in these areas.
+
+```{r remove_northern_seas}
+df_all <- df_all %>% 
+  mutate(
+    doc = ifelse(between(lon, 50, 100) & between(lat, 70, 80), NA, doc),
+    doc = ifelse(between(lon, 100, 150) & between(lat, 70, 80), NA, doc)
+    ) %>% 
+  drop_na()
+
+ggplot(df_all) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") + 
+  geom_point(aes(x = lon, y = lat, colour = log(doc) < 5), size = 0.5) +
+  ggplot2::scale_colour_viridis_d() +
+  coord_quickmap(expand = 0)
+```
+
+Let’s replot DOC distributions.
+
+```{r doc_new_dist}
+ggplot(df_all) + 
+  geom_histogram(aes(x = log(doc)), bins = 100) + 
+  facet_grid(season~layer, scales = "free")
+```
 
 ```{r apply_log}
 df_all <- df_all %>% mutate(doc_log = log(doc))
 ```
 
-::: callout-note
-Note as we will be dropping pixels with any missing value in the predictors, the distribution of DOC values is likely to change further, and this is actually the case when prediction is performed using all environmental predictors (see next notebook).
-:::
-
 ### Explanatory variables
 
-Let’s now investigate the big tendencies in our dataset.
+Let’s now investigate the big tendencies in our dataset, ignoring seasons, and in the surface layer, for points where doc is available.
 
 ```{r pca}
-# Need to remove lon and lat and to scale because units differ between variables
-df_pca <- df_all %>% select(c(lon, lat, doc, doc_log, everything()))
+df_pca <- df_all %>% 
+  filter(season == 0) %>% 
+  filter(layer == "surf") %>% 
+  filter(!is.na(doc)) %>% 
+  select(-c(season, layer)) %>% 
+  select(c(lon, lat, doc, doc_log, everything()))
 pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, scale.unit = TRUE, graph = FALSE)
 ```
 
@@ -100,7 +181,7 @@ inds <- pca_all$ind$coord %>% as_tibble()
 # Set nice names for columns
 colnames(inds) <- str_c("dim", paste(c(1:ncol(inds))))
 # And join with initial dataframe of objects
-inds <- df_all %>% bind_cols(inds)
+inds <- df_pca %>% bind_cols(inds)
 
 ggmap(inds, "dim1", type = "point", palette = div_pal)
 ggmap(inds, "dim2", type = "point", palette = div_pal)
@@ -116,8 +197,7 @@ It is important that the distribution of env data used to predict DOC is represe
 #| fig-width: 15
 #| fig-heigh: 10
 # List env variables
-env_vars <- df_env %>% select(-c(lon, lat)) %>% colnames()
-
+env_vars <- df_env %>% select(-c(lon, lat, season, layer)) %>% colnames()
 
 # Reshape tables of doc-annotated and overall env data
 dist_doc_ann <- df_all %>% 
