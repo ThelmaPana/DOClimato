@@ -32,202 +32,284 @@ We will create 4 datasets, one for each prediction task:
 load("data/00.all_env.Rdata")
 load("data/01.doc_data.Rdata")
 
-# Keep only mean for doc observations
-df_doc <- df_doc %>% select(lon, lat, season, layer, doc = doc_mean)
+# Clean names data: replace . by _
+df_env <- df_env %>% rename_all(~ sub("\\.", "_", .x))
+df_doc <- df_doc %>% rename_all(~ sub("\\.", "_", .x))
 ```
 
 ## Join
 
-```{r join}
-#| fig-column: body-outset
-#| out-width: 100%
-# Join env and doc data
-# Drop points where doc is missing
-df_all <- df_env %>% 
-  left_join(df_doc, by = join_by(lon, lat, season, layer)) %>% 
-  drop_na(doc)
+### Surface annual
 
-# Plot annual map by layer
-ggmap(
-  df_all %>% filter(season == 0), 
-  var = "doc", 
-  type = "point", 
-  palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10", na.value = NA)
-) + 
-  ggtitle("Annual by layer") + 
-  facet_wrap(~layer, ncol = 2)
+```{r surf_ann}
+## New predictions data
+# Env data in the surface layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+df_ann_surf_pred <- df_env %>% 
+  filter(season == 0) %>% 
+  select(-contains(c("meso", "bathy"))) %>% 
+  drop_na()
 
-# Plot seasonal map in surface layer
-ggmap(
-  df_all %>% filter(season != 0), 
-  var = "doc", 
-  type = "point", 
-  palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10", na.value = NA)
-) + 
-  ggtitle("Seasonal in surface layer") + 
-  facet_wrap(~season)
-
+## Model fitting data
+# Join env data with doc data, drop missing observations, apply log transformation to doc value
+df_ann_surf_fit <- df_doc %>% 
+  filter(season == 0) %>% 
+  select(-contains(c("meso", "bathy"))) %>% 
+  left_join(df_ann_surf_pred, by = join_by(lon, lat, season)) %>% 
+  drop_na() %>% 
+  mutate(log_doc_surf = log(doc_surf), .before = doc_surf)
 ```
 
-## Some data exploration
+Plot map of coverage.
 
-### Response variable
-
-```{r hist_doc}
-#| fig-column: body-outset
-#| out-width: 100%
-ggplot(df_all) + 
-  geom_histogram(aes(x = doc), bins = 100) + 
-  facet_grid(season~layer, scales = "free")
-```
-
-DOC distribution has a long-tail. Let’s try a log transformation.
-
-```{r hist_log_doc}
-#| fig-column: body-outset
-#| out-width: 100%
-ggplot(df_all) + 
-  geom_histogram(aes(x = log(doc)), bins = 100) + 
-  facet_grid(season~layer, scales = "free")
-```
-
-This is better but we still have some extreme values (e.g. `doc_log > 5`). Let’s see where these values are.
-
-```{r map_high_doc}
-#| fig-column: body-outset
-#| out-width: 100%
-ggplot(df_all) + 
-  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") + 
-  geom_point(aes(x = lon, y = lat, colour = log(doc) < 5), size = 0.5) +
-  ggplot2::scale_colour_viridis_d() +
+```{r surf_ann_cov}
+# Plot coverage of data
+# points are model fitting data
+# blue rectangles are the prediction area
+ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(data = df_ann_surf_pred, aes(x = lon, y = lat), fill = "steelblue3", alpha = 0.5) +
+  geom_point(data = df_ann_surf_fit, aes(x = lon, y = lat, colour = log_doc_surf), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(option = "A") +
   coord_quickmap(expand = 0) +
-  facet_grid(season~layer)
+  ggtitle("Surface annual")
 ```
 
-The very high DOC values are found at high latitudes in the north (Kara Sea and Laptev Sea). Let’s remove them.
+Plot doc distributions, after log-transformation
+
+```{r ann_surf_doc}
+ggplot(df_ann_surf_fit) + geom_histogram(aes(x = log_doc_surf)) + ggtitle("Surface annual")
+```
+
+Even with log-transformation, we still have a long-tail distribution. Let’s check where are these high values.
+
+```{r ann_surf_map_high}
+ggplot(df_ann_surf_fit) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_point(aes(x = lon, y = lat, colour = log_doc_surf > 5), size = 0.5) +
+  coord_quickmap(expand = 0) +
+  ggtitle("Surface annual")
+```
+
+### Surface seasonal
+
+```{r surf_seas}
+## New predictions data
+# Env data in the surface layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+df_seas_surf_pred <- df_env %>% 
+  filter(season != 0) %>% 
+  select(-contains(c("meso", "bathy"))) %>% 
+  drop_na()
+
+## Model fitting data
+# Join env data with doc data, drop missing observations, apply log transformation to doc value
+df_seas_surf_fit <- df_doc %>% 
+  filter(season != 0) %>% 
+  select(-contains(c("meso", "bathy"))) %>% 
+  left_join(df_seas_surf_pred, by = join_by(lon, lat, season)) %>% 
+  drop_na() %>% 
+  mutate(log_doc_surf = log(doc_surf), .before = doc_surf)
+```
+
+Plot map of coverage.
+
+```{r surf_seas_cov}
+# Plot coverage of data
+# points are model fitting data
+# blue rectangles are the prediction area
+ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(data = df_seas_surf_pred, aes(x = lon, y = lat), fill = "steelblue3", alpha = 0.5) +
+  geom_point(data = df_seas_surf_fit, aes(x = lon, y = lat, colour = log_doc_surf), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(option = "A") +
+  coord_quickmap(expand = 0) +
+  facet_wrap(~season) +
+  ggtitle("Surface seasonal")
+```
+
+A few very high values in autumn.
+
+Plot doc distributions, after log-transformation
+
+```{r seas_surf_doc}
+ggplot(df_seas_surf_fit) + geom_histogram(aes(x = log_doc_surf)) + facet_wrap(~season) + ggtitle("Surface seasonal")
+```
+
+Even with log-transformation, we still have a long-tail distribution, especially in autumn. Let’s check where are these high values.
+
+```{r seas_surf_map_high}
+ggplot(df_seas_surf_fit) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_point(aes(x = lon, y = lat, colour = log_doc_surf > 5), size = 0.5) +
+  coord_quickmap(expand = 0) + 
+  facet_wrap(~season) +
+  ggtitle("Surface seasonal")
+```
+
+### Mesopelagic annual
+
+```{r meso_ann}
+## New predictions data
+# Env data in the mesoace layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+df_ann_meso_pred <- df_env %>% filter(season == 0) %>% select(-contains(c("surf", "bathy"))) %>% drop_na()
+
+## Model fitting data
+# Join env data with doc data, drop missing observations, apply log transformation to doc value
+df_ann_meso_fit <- df_doc %>% 
+  filter(season == 0) %>% 
+  select(-contains(c("surf", "bathy"))) %>% 
+  left_join(df_ann_meso_pred, by = join_by(lon, lat, season)) %>% 
+  drop_na() %>% 
+  mutate(log_doc_meso = log(doc_meso), .before = doc_meso)
+```
+
+Plot map of coverage.
+
+```{r meso_ann_cov}
+# Plot coverage of data
+# points are model fitting data
+# blue rectangles are the prediction area
+ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(data = df_ann_meso_pred, aes(x = lon, y = lat), fill = "steelblue3", alpha = 0.5) +
+  geom_point(data = df_ann_meso_fit, aes(x = lon, y = lat, colour = log_doc_meso), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(option = "A") +
+  coord_quickmap(expand = 0) +
+  ggtitle("Meso annual")
+```
+
+Plot doc distributions, after log-transformation
+
+```{r ann_meso_doc}
+ggplot(df_ann_meso_fit) + geom_histogram(aes(x = log_doc_meso)) + ggtitle("Meso annual")
+```
+
+::: callout-note
+OK-ish distribution.
+:::
+
+### Bathypelagic annual
+
+```{r bathy_ann}
+## New predictions data
+# Env data in the mesoace layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+df_ann_bathy_pred <- df_env %>% filter(season == 0) %>% select(-contains(c("surf", "meso"))) %>% drop_na()
+
+## Model fitting data
+# Join env data with doc data, drop missing observations, apply log transformation to doc value
+df_ann_bathy_fit <- df_doc %>% 
+  filter(season == 0) %>% 
+  select(-contains(c("surf", "meso"))) %>% 
+  left_join(df_ann_bathy_pred, by = join_by(lon, lat, season)) %>% 
+  drop_na() %>% 
+  mutate(log_doc_bathy = log(doc_bathy), .before = doc_bathy)
+```
+
+Plot map of coverage.
+
+```{r bathy_ann_cov}
+# Plot coverage of data
+# points are model fitting data
+# blue rectangles are the prediction area
+ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(data = df_ann_bathy_pred, aes(x = lon, y = lat), fill = "steelblue3", alpha = 0.5) +
+  geom_point(data = df_ann_bathy_fit, aes(x = lon, y = lat, colour = log_doc_bathy), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(option = "A") +
+  coord_quickmap(expand = 0) +
+  ggtitle("Bathy annual")
+```
+
+Plot doc distributions, after log-transformation
+
+```{r ann_bathy_doc}
+ggplot(df_ann_bathy_fit) + geom_histogram(aes(x = log_doc_bathy)) + ggtitle("Bathy annual")
+```
+
+::: callout-note
+OK-ish distribution.
+:::
+
+## Remove extreme values
+
+::: callout-important
+In the surface layer, both in annual and seasonal, there are a few high values of log(doc). We need to get rid of these, **with a good justification**.
+:::
+
+The very high DOC values in the surface layer are found at high latitudes in the north (Kara Sea and Laptev Sea). Let’s remove them.
 
 -   Kara Sea: 50-100° E, 70-80°N
 
 -   Leptev Sea: 100-150° E, 70-80°N
 
-::: {.callout-note appearance="simple"}
-## TODO
-
-Add a justification for removing these points.
-:::
-
 Set DOC values to NA in these areas.
 
 ```{r remove_northern_seas}
-df_all <- df_all %>% 
+# Annual surface data
+df_ann_surf_fit <- df_ann_surf_fit %>% 
   mutate(
-    doc = ifelse(between(lon, 50, 100) & between(lat, 70, 80), NA, doc),
-    doc = ifelse(between(lon, 100, 150) & between(lat, 70, 80), NA, doc)
+    log_doc_surf = ifelse(between(lon, 50, 100) & between(lat, 70, 80), NA, log_doc_surf),
+    log_doc_surf = ifelse(between(lon, 100, 150) & between(lat, 70, 80), NA, log_doc_surf),
+    doc_surf = ifelse(between(lon, 50, 100) & between(lat, 70, 80), NA, doc_surf),
+    doc_surf = ifelse(between(lon, 100, 150) & between(lat, 70, 80), NA, doc_surf)
     ) %>% 
   drop_na()
 
-ggplot(df_all) +
-  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") + 
-  geom_point(aes(x = lon, y = lat, colour = log(doc) < 5), size = 0.5) +
-  ggplot2::scale_colour_viridis_d() +
+# Seasonal surface data
+df_seas_surf_fit <- df_seas_surf_fit %>% 
+  mutate(
+    log_doc_surf = ifelse(between(lon, 50, 100) & between(lat, 70, 80), NA, log_doc_surf),
+    log_doc_surf = ifelse(between(lon, 100, 150) & between(lat, 70, 80), NA, log_doc_surf),
+    doc_surf = ifelse(between(lon, 50, 100) & between(lat, 70, 80), NA, doc_surf),
+    doc_surf = ifelse(between(lon, 100, 150) & between(lat, 70, 80), NA, doc_surf)
+    ) %>% 
+  drop_na()
+```
+
+Plot maps
+
+```{r r_remove_nseas_maps}
+ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(data = df_ann_surf_pred, aes(x = lon, y = lat), fill = "steelblue3", alpha = 0.5) +
+  geom_point(data = df_ann_surf_fit, aes(x = lon, y = lat, colour = log_doc_surf), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(option = "A") +
+  ggtitle("Surface annual") +
   coord_quickmap(expand = 0)
+
+ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(data = df_seas_surf_pred, aes(x = lon, y = lat), fill = "steelblue3", alpha = 0.5) +
+  geom_point(data = df_seas_surf_fit, aes(x = lon, y = lat, colour = log_doc_surf), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(option = "A") +
+  coord_quickmap(expand = 0) +
+  ggtitle("Surface seasonal") +
+  facet_wrap(~season)
 ```
 
 Let’s replot DOC distributions.
 
-```{r doc_new_dist}
-ggplot(df_all) + 
-  geom_histogram(aes(x = log(doc)), bins = 100) + 
-  facet_grid(season~layer, scales = "free")
+```{r r_remove_nseas_dist}
+ggplot(df_ann_surf_fit) + geom_histogram(aes(x = log_doc_surf), bins = 100) + ggtitle("Surface annual")
+ggplot(df_seas_surf_fit) + geom_histogram(aes(x = log_doc_surf), bins = 100) + facet_wrap(~season) + ggtitle("Surface seasonal")
 ```
 
-```{r apply_log}
-df_all <- df_all %>% mutate(doc_log = log(doc))
-```
+::: callout-important
+Not perfect, but not too bad for now. Will likely require more filtering.
 
-### Explanatory variables
-
-Let’s now investigate the big tendencies in our dataset, ignoring seasons, and in the surface layer, for points where doc is available.
-
-```{r pca}
-df_pca <- df_all %>% 
-  filter(season == 0) %>% 
-  filter(layer == "surf") %>% 
-  filter(!is.na(doc)) %>% 
-  select(-c(season, layer)) %>% 
-  select(c(lon, lat, doc, doc_log, everything()))
-pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, scale.unit = TRUE, graph = FALSE)
-```
-
-Plot eigenvalues.
-
-```{r eig}
-plot_eig(pca_all)
-```
-
-Plot variables.
-
-```{r vars}
-#| fig-column: body-outset
-#| out-width: 100%
-plot(pca_all, choix = "var", axes = c(1, 2), cex = 0.7)
-```
-
-```{r inds}
-#| fig-column: body-outset
-#| out-width: 100%
-## Get coordinates of individuals
-inds <- pca_all$ind$coord %>% as_tibble()
-# Set nice names for columns
-colnames(inds) <- str_c("dim", paste(c(1:ncol(inds))))
-# And join with initial dataframe of objects
-inds <- df_pca %>% bind_cols(inds)
-
-ggmap(inds, "dim1", type = "point", palette = div_pal)
-ggmap(inds, "dim2", type = "point", palette = div_pal)
-```
-
-### Distribution of DOC-annotated data VS overall env data
-
-It is important that the distribution of env data used to predict DOC is representative of the overall environmental data that we are going to used to make predictions.
-
-```{r comp_distrib}
-#| fig-column: screen-inset
-#| out-width: 100%
-#| fig-width: 15
-#| fig-heigh: 10
-# List env variables
-env_vars <- df_env %>% select(-c(lon, lat, season, layer)) %>% colnames()
-
-# Reshape tables of doc-annotated and overall env data
-dist_doc_ann <- df_all %>% 
-  drop_na(doc) %>% 
-  select(all_of(env_vars)) %>% 
-  mutate(type = "doc-annotated") %>% 
-  pivot_longer(all_of(env_vars), names_to = "variable")
-dist_env <- df_env %>% 
-  select(all_of(env_vars)) %>% 
-  mutate(type = "overall") %>% 
-  pivot_longer(all_of(env_vars), names_to = "variable")
-
-# Assemble and plot
-bind_rows(dist_doc_ann, dist_env) %>% 
-  drop_na() %>% 
-  ggplot() + 
-  geom_density(aes(x = value, colour = type)) +
-  facet_wrap(~variable, scales = "free")
-```
-
-Distributions are not too different, this is good, it means that our model won’t extrapolate outside of the range it was trained on.
+## 
+:::
 
 ## Save everything
 
-Two datasets are saved:
+For each prediction task (surface annual, surface seasonal, meso annual and bathy annual) two datasets are saved:
 
--   one with both DOC and env data at locations where DOC is available: this will be used to train the model.
+-   one with both DOC and env data at locations where DOC is available: this will be used to fit the model.
 
 -   one with global map of env data, to predict DOC at the global scale
 
 ```{r save}
-save(df_all, df_env, file = "data/02.all_data.Rdata")
+save(df_ann_surf_fit, df_ann_surf_pred, file = "data/02.ann_surf.Rdata")
+save(df_seas_surf_fit, df_seas_surf_pred, file = "data/02.seas_surf.Rdata")
+save(df_ann_meso_fit, df_ann_meso_pred, file = "data/02.ann_meso.Rdata")
+save(df_ann_bathy_fit, df_ann_bathy_pred, file = "data/02.ann_bathy.Rdata")
 ```
