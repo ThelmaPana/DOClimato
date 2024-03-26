@@ -91,7 +91,7 @@ df_doc <- df_doc %>%
     # Fix for dates ending in 00
     date = str_replace(date, "00$", "01"),
     date = ymd(date) # format date
-    )
+  )
 ```
 
 ## Assign observations to layers
@@ -156,6 +156,16 @@ ggmap(df_doc_ann, "doc_sd", type = "point", palette = ggplot2::scale_colour_viri
   facet_wrap(~layer, ncol = 2)
 ```
 
+Store layered doc in multiple columns, in a similar fashion as for env data, and add season.
+
+```{r ann_doc_cal}
+df_doc_ann <- df_doc_ann %>% 
+  select(lon, lat, layer, doc = doc_mean) %>% 
+  mutate(layer = paste0("doc.", layer)) %>% 
+  pivot_wider(names_from = layer, values_from = doc) %>% 
+  mutate(season = 0, .after = lat)
+```
+
 ### Seasonal (surface layer only)
 
 Seasons are defined as:
@@ -181,9 +191,7 @@ df_doc_s <- df_doc %>%
   group_by(lon, lat, season) %>%
   summarise(
     # compute mean and sd
-    doc_mean = mean(doc),
-    doc_sd = sd(doc),
-    n_obs = n(),
+    doc.surf = mean(doc),
     .groups = "drop"
   ) 
 
@@ -198,8 +206,7 @@ And plot seasonal maps.
 #| out-width: 100%
 #| fig-width: 10
 #| fig-height: 5
-ggmap(df_doc_s, "doc_mean", type = "point") + 
-  ggplot2::scale_colour_viridis_c(option = "A", trans = "log10") +
+ggmap(df_doc_s, "doc.surf", type = "point", palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10")) + 
   facet_wrap(~season) +
   ggtitle("DOC mean by season")
 ```
@@ -210,10 +217,18 @@ Few observations during winter at high latitudes. Will see what we can do.
 
 ```{r save}
 # Join annual and seasonnal observations together
-df_doc <- bind_rows(
-  df_doc_ann %>% mutate(season = 0, .after = lat),
-  df_doc_s %>% mutate(layer = "surf", .after = season)
-)
+df_doc <- bind_rows(df_doc_ann, df_doc_s)
+
+### Some sanity checks
+## seasonal data is only in surf #ok
+#df_doc %>% filter(season != 0) %>% select(-contains(c("meso", "bathy"))) %>% summary()
+#df_doc %>% filter(season != 0) %>% select(contains(c("meso", "bathy"))) %>% summary()
+#
+## annual data is in all 3 layers
+#df_doc %>% filter(season == 0) %>% summary()
+#
+## All ok!
+
 
 # Save
 save(df_doc, file = "data/01.doc_data.Rdata")
