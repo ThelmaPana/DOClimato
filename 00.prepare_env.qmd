@@ -638,15 +638,18 @@ df_env_m$lat <- rep(lat, each = length(lon))
 df_env_m$season <- rep(1:4, each = length(lon)*length(lat))
 
 # Remove nutrients in the bathypelagic as these are only NAs and convert to tibble
-df_env_m <- df_env_m %>% select(-c(nitrate.bathy, silicate.bathy, phosphate.bathy)) %>% as_tibble()
-
-# Create a column to distinguish between layers
 df_env_m <- df_env_m %>% 
-  select(lon, lat, season, everything()) %>% 
-  pivot_longer(temperature.surf:nitrate.meso) %>% # initially one variable per layer, 
-  separate_wider_delim(name, into = c("variable", "layer"), sep = "\\.") %>% # get layer and variable
-  pivot_wider(names_from = "variable", values_from = "value") %>% # recreate columns from variables
-  select(lon, lat, season, layer, everything())
+  select(-c(nitrate.bathy, silicate.bathy, phosphate.bathy)) %>% 
+  as_tibble() %>% 
+  select(lon, lat, season, everything())
+
+## Create a column to distinguish between layers
+#df_env_m <- df_env_m %>% 
+#  select(lon, lat, season, everything()) %>% 
+#  pivot_longer(temperature.surf:nitrate.meso) %>% # initially one variable per layer, 
+#  separate_wider_delim(name, into = c("variable", "layer"), sep = "\\.") %>% # get layer and variable
+#  pivot_wider(names_from = "variable", values_from = "value") %>% # recreate columns from variables
+#  select(lon, lat, season, layer, everything())
 ```
 
 Then join with PAR data.
@@ -660,7 +663,7 @@ Let’s do a quick plot to check everything is fine.
 ```{r map_temp}
 #| fig-column: body-outset
 #| out-width: 100%
-ggmap(df_env_m, "temperature", type = "raster") + facet_grid(season~layer)
+ggmap(df_env_m, "temperature.surf", type = "raster") + facet_wrap(~season)
 ```
 
 ## Remove internal seas, lakes and land
@@ -692,7 +695,7 @@ ggplot(df_env_m) +
   coord_quickmap()
 
 # blankout points in land
-df_env_m[inland, !names(df_env_m) %in% c("lon", "lat", "season", "layer")] <- NA
+df_env_m[inland, !names(df_env_m) %in% c("lon", "lat", "season")] <- NA
 # NB: this works because `inland` gets automatically repeated for everymonth
 
 # Convert to tibble and reorder columns
@@ -704,10 +707,9 @@ Plot a few maps without land to check.
 ```{r maps_check}
 #| fig-column: body-outset
 #| out-width: 100%
-ggmap(df_env_m, "salinity", type = "raster", land = FALSE) + facet_grid(season~layer)
-ggmap(df_env_m, "density", type = "raster", land = FALSE) + facet_grid(season~layer)
-ggmap(df_env_m, "npp", type = "raster", land = FALSE) + facet_grid(season~layer)
-ggmap(df_env_m, "mld", type = "raster", land = FALSE) + facet_grid(season~layer)
+ggmap(df_env_m, "density.surf", type = "raster", land = FALSE) + facet_wrap(~season)
+ggmap(df_env_m, "npp", type = "raster", land = FALSE) + facet_wrap(~season)
+ggmap(df_env_m, "mld", type = "raster", land = FALSE) + facet_wrap(~season)
 ```
 
 Seems all good!
@@ -717,15 +719,28 @@ Seems all good!
 ```{r to_yearly}
 df_env_ann <- df_env_m %>% 
   mutate(season = 0) %>% # to yearly
-  group_by(lon, lat, season, layer) %>% 
+  group_by(lon, lat, season) %>% 
   summarise_all(mean, na.rm = TRUE) %>% 
   ungroup()
 
 # Drop seasonal data for meso and bathy
-df_env_m <- df_env_m %>% filter(layer == "surf")
+df_env_m <- df_env_m %>% select(-contains(c("meso", "bathy")))
 
 # Store annual with monthly data
 df_env <- bind_rows(df_env_m, df_env_ann)
+```
+
+Do some sanity checks.
+
+```{r sanity_checks}
+## seasonal data is only in surf #ok
+#df_env %>% filter(season != 0) %>% select(-contains(c("meso", "bathy"))) %>% summary()
+#df_env %>% filter(season != 0) %>% select(contains(c("meso", "bathy"))) %>% summary()
+#
+## annual data is in all 3 layers
+#df_env %>% filter(season == 0) %>% summary()
+#
+## All ok!
 ```
 
 ## Save environmental data
@@ -741,7 +756,7 @@ save(df_env, file = "data/00.all_env.Rdata")
 ```{r plot_all_ann}
 #| cache-lazy: false
 # Names of env variables
-var_names <- df_env %>% select(-c(lon, lat, season, layer)) %>% colnames()
+var_names <- df_env %>% select(-c(lon, lat, season)) %>% colnames()
 plot_list <- list()
 for (i in 1:length(var_names)){
   plot_list[[i]] <- ggmap(
@@ -749,12 +764,14 @@ for (i in 1:length(var_names)){
     var_names[i], 
     type = "raster"
   ) +
-  facet_wrap(~layer)
+  ggtitle(var_names[i])
 }
 plot_list
 ```
 
 ### Seasonal
+
+Here we do not expect maps in the meso and bathypelagic.
 
 ```{r plot_all_seas}
 #| cache.lazy: false
@@ -765,7 +782,8 @@ for (i in 1:length(var_names)){
     var_names[i], 
     type = "raster"
   ) + 
-  facet_wrap(~season)
+  facet_wrap(~season) +
+  ggtitle(var_names[i])
 }
 plot_list
 ```
