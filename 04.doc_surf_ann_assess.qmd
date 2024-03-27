@@ -1,0 +1,415 @@
+---
+title: "Assess quality of DOC prediction."
+subtitle: "Use the test set not used to train the model to compute performance metrics."
+author: "Thelma Panaïotis"
+format:
+  html:
+    toc: true
+    embed-resources: true
+editor: visual
+execute:
+  cache: true
+  warning: false
+---
+
+## Set-up and load data
+
+```{r set-up}
+#|output: false
+#|cache: false
+source("utils.R")
+load("data/03.doc_surf_ann_pred.Rdata")
+```
+
+## Model evaluation
+
+### Rsquares
+
+Black dots on the R² boxplots show the actual values.
+
+```{r rsq}
+# Unnest predictions
+preds <- res %>% select(fold, cv_type, preds) %>% unnest(preds)
+
+# Compute Rsquare for each fold of each CV type
+rsquares <- preds %>%
+  group_by(cv_type, fold) %>%
+  rsq(truth = log_doc_surf, estimate = .pred)
+
+# Distribution of Rsquares by CV type
+rsquares %>% split(.$cv_type) %>% map(summary)
+
+# Plot Rsquares values
+ggplot(rsquares) + 
+  geom_boxplot(aes(x = cv_type, y = .estimate, group = cv_type, colour = cv_type)) +
+  geom_jitter(aes(x = cv_type, y = .estimate), size = 0.5, width = 0.1) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  labs(x = "CV type", y = "R²", colour = "CV type")
+```
+
+### Predictions VS truth
+
+Plot pred VS truth on the test part of each fold of each CV type.
+
+```{r pred_vs_truth_all}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 10
+#| fig-height: 8
+preds %>%
+  ggplot() +
+  geom_point(aes(x = log_doc_surf, y = .pred, colour = cv_type)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red") +
+  coord_fixed() + 
+  facet_wrap(cv_type~fold)
+```
+
+Now let’s focus on a representative fold for each CV type.
+
+```{r pred_vs_truth_rep}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 8
+#| fig-height: 4
+# Find the one closer to the median and plot it
+repres_fold <- rsquares %>%
+  group_by(cv_type) %>%
+  mutate(diff = abs(.estimate - median(.estimate))) %>%
+  filter(diff == min(diff)) %>%
+  slice_head(n = 1)
+
+repres_fold %>%
+  select(cv_type, fold) %>%
+  left_join(preds, by = join_by(cv_type, fold)) %>%
+  ggplot() +
+  geom_point(aes(x = log_doc_surf, y = .pred, colour = cv_type)) +
+  geom_abline(intercept = 0, slope = 1, colour = "red") +
+  coord_fixed() + 
+  labs(title = "Pred VS truth for a representative fold") +
+  facet_grid(~cv_type)
+```
+
+## Model interpretation
+
+### Variable importance
+
+Variable importance for each fold of each CV type.
+
+```{r var_imp_all}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 8
+#| fig-height: 10
+# Unnest variable importance
+full_vip <- res %>%
+  select(cv_type, fold, importance) %>%
+  unnest(importance) %>%
+  mutate(variable = forcats::fct_reorder(variable, dropout_loss))
+
+# Variable importance across folds
+full_vip %>%
+  filter(variable != "_full_model_") %>%
+  ggplot() +
+  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
+  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
+  labs(x = "RMSE after permutations") +
+  facet_grid(fold~cv_type)
+```
+
+Now let’s take the mean across folds of each CV type.
+
+```{r var_imp_mean}
+full_vip %>%
+  filter(variable != "_full_model_") %>%
+  group_by(cv_type, fold, variable) %>%
+  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>%
+  ggplot() +
+  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
+  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
+  labs(x = "Mean RMSE after permutations across CV folds")
+```
+
+### Partial dependence plots
+
+Finally, let’s have a look at partial dependence plots.
+
+-   blue line: prediction mean across *cp* profiles
+
+-   grey ribbon: prediction sd across centered *cp* profiles
+
+```{r pdp}
+#| fig-column: body-outset
+#| out-width: 100%
+#| fig-width: 8
+#| fig-height: 3
+# Variables for which to plot pdp
+n_pdp <- 3
+vars_pdp <- full_vip %>%
+  filter(variable != "_full_model_") %>%
+  mutate(variable = as.character(variable)) %>%
+  group_by(cv_type, variable) %>%
+  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>%
+  arrange(desc(dropout_loss)) %>%
+  group_by(cv_type) %>%
+  slice_head(n = n_pdp)
+
+# Unnest cp_profiles
+cp_profiles <- res %>% select(cv_type, fold, cp_profiles) %>% unnest(cp_profiles)
+
+## Let’s generate averaged cp profile across folds for each cv-type and propagating uncertainties. 
+## The difficulty is that x values differ between each fold, the solution is to interpolate yhat on a common set of x values across folds.
+## Steps as follows for each cv_type and each variable
+## 1- compute the mean and spread of cp profiles within each fold
+## 2- interpolate yhat value and spread within each fold using a common set of x values
+## 3- perform a weighted average of yhat value and spread, using 1/var as weights
+
+# Get names of folds, for later use
+folds <- sort(unique(full_vip$fold))
+
+# Apply on each cv_type and variable
+mean_pdp <- lapply(1:nrow(vars_pdp), function(r){
+  
+  # Get variable and cvtype
+  var_name <- vars_pdp[r,]$variable
+  cv_type_name <- vars_pdp[r,]$cv_type
+  
+  ## Get corresponding CP profiles, compute mean and spread for each fold (step 1)
+  d_pdp <- cp_profiles %>% 
+    filter(cv_type == cv_type_name & `_vname_` == var_name) %>% 
+    select(cv_type, fold, `_yhat_`, `_vname_`, `_ids_`, all_of(var_name)) %>% 
+    arrange(`_ids_`, across(all_of(var_name))) %>% 
+    # center each cp profiles across fold, variable and ids
+    group_by(cv_type, fold, `_vname_`, `_ids_`) %>%
+    mutate(yhat_cent = `_yhat_` - mean(`_yhat_`)) %>% # center cp profiles
+    ungroup() %>%
+    # compute mean and sd of centered cp profiles for each fold and value of the variable of interest
+    group_by(cv_type, fold, across(all_of(var_name))) %>%
+    summarise(
+      yhat_loc = mean(`_yhat_`), # compute mean of profiles
+      yhat_spr = sd(yhat_cent), # compute sd of cp profiles
+      .groups = "keep"
+    ) %>%
+    ungroup() %>% 
+    setNames(c("cv_type", "fold", "x", "yhat_loc", "yhat_spr"))
+  
+  ## Interpolate yhat values and spread on a common x distribution (step 2)
+  # Regularise across folds: need a common x distribution, and interpolate y on this new x
+  new_x <- quantile(d_pdp$x, probs = seq(0, 1, 0.01), names = FALSE)
+  # x is different within each fold, so interpolation is performed on each fold
+  
+  int_pdp <- lapply(1:length(folds), function(i){
+    # Get data corresponding to this fold
+    fold_name <- folds[i]
+    this_fold <- d_pdp %>% filter(fold == fold_name)
+    
+    # Extract original x values
+    x <- this_fold$x
+    # Extract values to interpolate (yhat_loc and yhat_spr)
+    yhat_loc <- this_fold$yhat_loc
+    yhat_spr <- this_fold$yhat_spr
+    # Interpolate yhat_loc and yhat_spr on new x values
+    int <- tibble(
+      x = new_x,
+      yhat_loc = castr::interpolate(x = x, y = yhat_loc, xout = new_x),
+      yhat_spr = castr::interpolate(x = x, y = yhat_spr, xout = new_x),
+    ) %>% 
+      mutate(
+        cv_type = cv_type_name,
+        fold = fold_name,
+        var_name = var_name,
+        .before = x
+        )
+    # Return the result
+    return(int)
+    
+  }) %>% 
+    bind_rows()
+  
+  ## Across fold, compute the weighted mean, using 1/var as weights (step 3)
+  mean_pdp <- int_pdp %>% 
+    group_by(cv_type, var_name, x) %>% 
+    summarise(
+      yhat_loc = wtd.mean(yhat_loc, weights = 1/(yhat_spr)^2),
+      yhat_spr = wtd.mean(yhat_spr, weights = 1/(yhat_spr)^2),
+      .groups = "drop"
+    ) %>% 
+    arrange(x)
+  
+  # Return the result
+  return(mean_pdp)
+}) %>% 
+  bind_rows()
+
+# Arrange in order of most important variables
+mean_pdp <- vars_pdp %>% 
+  rename(var_name = variable) %>% 
+  left_join(mean_pdp, by = join_by(cv_type, var_name)) %>% 
+  mutate(var_name = fct_inorder(var_name)) %>% 
+  select(-dropout_loss)
+
+# Plot it!
+ggplot(mean_pdp) + 
+  geom_path(aes(x = x, y = yhat_loc, colour = cv_type)) +
+  geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr, fill = cv_type), alpha = 0.2) +
+  facet_wrap(~var_name, scales = "free_x")
+```
+
+## New predictions
+
+### Collect predictions
+
+```{r get_proj}
+# Unnest new predictions (i.e. projections)
+new_preds <- res %>% 
+  select(fold, cv_type, new_preds) %>% 
+  unnest(new_preds) %>% 
+  # Apply exp to predictions as we predicted log(doc)
+  mutate(pred_doc = exp(pred_doc_log), .after = pred_doc_log) %>% 
+  select(cv_type, fold, lon, lat, contains("doc"))
+
+# Get those from stratified CV
+new_preds_strat <- new_preds %>% filter(cv_type == "stratified")
+
+# And those from spatial CV
+new_preds_spat <- new_preds %>% filter(cv_type == "spatial")
+
+# Join projections with R² value for each fold and each cv_type.
+new_preds_strat <- new_preds_strat %>% left_join(rsquares %>% select(cv_type, fold, rsq = .estimate), by = join_by(cv_type, fold))
+new_preds_spat <- new_preds_spat %>% left_join(rsquares %>% select(cv_type, fold, rsq = .estimate), by = join_by(cv_type, fold))
+
+## Average by pixel
+# Stratified
+strat_proj <- new_preds_strat %>% 
+  group_by(lon, lat) %>% 
+  summarise(
+    doc_avg = wtd.mean(pred_doc, weights = rsq, na.rm = TRUE), 
+    doc_sd = sqrt(wtd.var(pred_doc, weights = rsq, na.rm = TRUE)), 
+    .groups = "drop"
+    )
+
+# Spatial
+spat_proj <- new_preds_spat %>% 
+  group_by(lon, lat) %>% 
+  summarise(
+    doc_avg = wtd.mean(pred_doc, weights = rsq, na.rm = TRUE), 
+    doc_sd = sqrt(wtd.var(pred_doc, weights = rsq, na.rm = TRUE)), 
+    .groups = "drop"
+    )
+
+# Generate common colour bar limits for both CV types
+doc_avg_lims <- c(
+  min(c(strat_proj$doc_avg, spat_proj$doc_avg)), 
+  max(c(strat_proj$doc_avg, spat_proj$doc_avg))  
+)
+doc_sd_lims <- c(
+  min(c(strat_proj$doc_sd, spat_proj$doc_sd)), 
+  max(c(strat_proj$doc_sd, spat_proj$doc_sd))  
+)
+
+```
+
+### Maps
+
+#### Stratified CV
+
+```{r strat_maps}
+#| fig-column: body-outset
+#| out-width: 100%
+ggplot(strat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_avg)) + 
+  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims, trans = "log1p") +
+  labs(title = "DOC avg from stratified CV") +
+  coord_quickmap(expand = 0)
+
+ggplot(strat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_sd)) + 
+  ggplot2::scale_fill_viridis_c(option = "E", limits = doc_sd_lims, trans = "log1p") +
+  labs(title = "DOC sd from stratified CV") +
+  coord_quickmap(expand = 0)
+```
+
+Look at variations across CV folds.
+
+```{r maps_strat_folds}
+#| fig-column: screen-inset
+#| out-width: 100%
+#| fig-width: 15
+#| fig-height: 10
+new_preds_strat %>% 
+  # Add information of R² to cv name
+  mutate(fold = paste0(fold, " (R² = ", percent(rsq, accuracy = 0.1), ")")) %>% 
+  ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = pred_doc)) + 
+  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims, trans = "log1p") +
+  labs(title = "DOC pred across stratified CV folds") +
+  coord_quickmap(expand = 0) +
+  facet_wrap(~fold)
+```
+
+#### Spatial CV
+
+```{r spat_maps}
+#| fig-column: body-outset
+#| out-width: 100%
+ggplot(spat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_avg)) + 
+  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims, trans = "log1p") +
+  labs(title = "DOC avg from spatial CV") +
+  coord_quickmap(expand = 0)
+
+ggplot(spat_proj) + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = doc_sd)) + 
+  ggplot2::scale_fill_viridis_c(trans = "log1p", option = "E", limits = doc_sd_lims) +
+  labs(title = "DOC sd from spatial CV") +
+  coord_quickmap(expand = 0)
+```
+
+Sd across folds is higher for spatial CV, we can expect more variation across folds, let’s plot it.
+
+```{r maps_spat_folds}
+#| fig-column: screen-inset
+#| out-width: 100%
+#| fig-width: 15
+#| fig-height: 10
+new_preds_spat %>% 
+  mutate(fold = paste0(fold, " (R² = ", percent(rsq, accuracy = 0.1), ")")) %>% 
+  ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = pred_doc)) + 
+  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims, trans = "log1p") +
+  labs(title = "DOC pred across spatial CV folds") +
+  coord_quickmap(expand = 0) +
+  facet_wrap(~fold)
+```
+
+::: callout-note
+As expected, more variation can be detected across folds.
+:::
+
+#### Statified VS spatial
+
+```{r diff}
+#| fig-column: body-outset
+#| out-width: 100%
+strat_proj %>% 
+  select(lon, lat, strat = doc_avg) %>% 
+  left_join(spat_proj %>% select(lon, lat, spat = doc_avg), by = join_by(lon, lat)) %>% 
+  mutate(diff = strat - spat) %>% 
+  ggplot() + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = diff)) + 
+  scale_fill_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027") +
+  labs(title = "DOC stratified CV - DOC spatial CV") +
+  coord_quickmap(expand = 0)
+```
+
+::: callout-tip
+## Conclusion
+
+No obvious difference between both (except at very high latitudes), likely due to averaging across folds.
+:::
