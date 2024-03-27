@@ -149,8 +149,8 @@ ggplot(df_seas_surf_fit) +
 
 ```{r meso_ann}
 ## New predictions data
-# Env data in the mesoace layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
-df_ann_meso_pred <- df_env %>% filter(season == 0) %>% select(-contains(c("surf", "bathy"))) %>% drop_na()
+# Env data in the surface + mesopelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+df_ann_meso_pred <- df_env %>% filter(season == 0) %>% select(-contains("bathy")) %>% drop_na()
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -191,8 +191,8 @@ OK-ish distribution.
 
 ```{r bathy_ann}
 ## New predictions data
-# Env data in the mesoace layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
-df_ann_bathy_pred <- df_env %>% filter(season == 0) %>% select(-contains(c("surf", "meso"))) %>% drop_na()
+# Env data in the surface + mesopelagic + bathypelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+df_ann_bathy_pred <- df_env %>% filter(season == 0) %>% drop_na()
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -295,8 +295,6 @@ ggplot(df_seas_surf_fit) + geom_histogram(aes(x = log_doc_surf), bins = 100) + f
 
 ::: callout-important
 Not perfect, but not too bad for now. Will likely require more filtering.
-
-## 
 :::
 
 ## Save everything
