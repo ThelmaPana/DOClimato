@@ -17,6 +17,7 @@ execute:
 ```{r set-up}
 #|output: false
 #|cache: false
+#|cache.lazy: false
 source("utils.R")
 load("data/06.doc_surf_seas_pred.Rdata")
 ```
@@ -341,7 +342,7 @@ ggplot(seas_amp) +
 ggplot(seas_amp) + 
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
   geom_raster(aes(x = lon, y = lat, fill = seas_var)) + 
-  scale_fill_viridis_c() +
+  scale_fill_viridis_c(trans = "log1p", na.value = NA) +
   labs(title = "Seasonal variance") +
   coord_quickmap(expand = 0) 
 ```

@@ -239,11 +239,13 @@ res <- pbmclapply(1:nrow(folds), function(i){
   
   ## Return results
   return(tibble(
+      resp = resp_var[2],
+      season = "0",
+      cv_type = x$cv_type,
+      fold = x$id,
       preds = list(preds),
       importance = list(full_vip),
       cp_profiles = list(cp_profiles),
-      fold = x$id,
-      cv_type = x$cv_type,
       new_preds = list(new_preds)
     ))
 }, mc.cores = 10) %>%

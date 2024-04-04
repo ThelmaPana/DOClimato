@@ -1,6 +1,6 @@
 ---
-title: "Assess quality of DOC prediction."
-subtitle: "Use the test set not used to train the model to compute performance metrics."
+title: "Analyse predictons of annual surface DOC"
+subtitle: "Model evaluation, interpretation & projections"
 author: "Thelma Panaïotis"
 format:
   html:

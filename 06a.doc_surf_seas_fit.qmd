@@ -172,8 +172,7 @@ xgb_grid <- grid_latin_hypercube(
   learn_rate(),
   tree_depth(),
   min_n(),
-  #size = 30
-  size = 5
+  size = 30
 )
 ```
 
@@ -182,6 +181,7 @@ xgb_grid <- grid_latin_hypercube(
 Let’s loop on cv folds. For each fold, a gridsearch is performed using nested CV on training data, and performance are assessed on the test data. This is run in parallel on `r n_cores` cores.
 
 ```{r gridsearch}
+#|cache.lazy: false
 res <- pbmclapply(1:nrow(folds), function(i){
   
   ## Get fold
@@ -256,12 +256,13 @@ res <- pbmclapply(1:nrow(folds), function(i){
   
   ## Return results
   return(tibble(
+      resp = resp_var[2],
+      season = x$season,
+      cv_type = x$cv_type,
+      fold = x$id,
       preds = list(preds),
       importance = list(full_vip),
       cp_profiles = list(cp_profiles),
-      fold = x$id,
-      cv_type = x$cv_type,
-      season = as.character(x$season),
       new_preds = list(new_preds)
     ))
 }, mc.cores = 10) %>%
@@ -271,5 +272,6 @@ res <- pbmclapply(1:nrow(folds), function(i){
 ## Save results
 
 ```{r save}
+#|cache.lazy: false
 save(res, file = output_filename)
 ```
