@@ -439,3 +439,99 @@ ggplot_pdp <- function(obj, x, unlog = FALSE) {
   p
 }
 
+
+## Average pdp across CV folds ----
+#--------------------------------------------------------------------------#
+#' Average pdp across CV folds.
+#' 
+#' Steps as follows for each cv_type and each variable
+#' 1- compute the mean and spread of cp profiles within each fold
+#' 2- interpolate yhat value and spread within each fold using a common set of x values
+#' 3- perform a weighted average of yhat value and spread, using 1/var as weights
+#'
+#' @param cp dataframe of cp profiles
+#' @param vars dataframe with variables to use
+#'
+#' @return
+#'
+prep_pdp <- function(cp, vars){
+  # Get names of folds, for later use
+  folds <- sort(unique(cp$fold))
+  
+  # Apply on each cv_type and variable
+  mean_pdp <- lapply(1:nrow(vars), function(r){
+    
+    # Get variable and cvtype
+    var_name <- vars[r,]$variable
+    cv_type_name <- vars[r,]$cv_type
+    
+    ## Get corresponding CP profiles, compute mean and spread for each fold (step 1)
+    d_pdp <- cp %>% 
+      filter(cv_type == cv_type_name & `_vname_` == var_name) %>% 
+      select(cv_type, fold, `_yhat_`, `_vname_`, `_ids_`, all_of(var_name)) %>% 
+      arrange(`_ids_`, across(all_of(var_name))) %>% 
+      # center each cp profiles across fold, variable and ids
+      group_by(cv_type, fold, `_vname_`, `_ids_`) %>%
+      mutate(yhat_cent = `_yhat_` - mean(`_yhat_`)) %>% # center cp profiles
+      ungroup() %>%
+      # compute mean and sd of centered cp profiles for each fold and value of the variable of interest
+      group_by(cv_type, fold, across(all_of(var_name))) %>%
+      summarise(
+        yhat_loc = mean(`_yhat_`), # compute mean of profiles
+        yhat_spr = sd(yhat_cent), # compute sd of cp profiles
+        .groups = "keep"
+      ) %>%
+      ungroup() %>% 
+      setNames(c("cv_type", "fold", "x", "yhat_loc", "yhat_spr"))
+    
+    ## Interpolate yhat values and spread on a common x distribution (step 2)
+    # Regularise across folds: need a common x distribution, and interpolate y on this new x
+    new_x <- quantile(d_pdp$x, probs = seq(0, 1, 0.01), names = FALSE)
+    # x is different within each fold, so interpolation is performed on each fold
+    
+    int_pdp <- lapply(1:length(folds), function(i){
+      # Get data corresponding to this fold
+      fold_name <- folds[i]
+      this_fold <- d_pdp %>% filter(fold == fold_name)
+      
+      # Extract original x values
+      x <- this_fold$x
+      # Extract values to interpolate (yhat_loc and yhat_spr)
+      yhat_loc <- this_fold$yhat_loc
+      yhat_spr <- this_fold$yhat_spr
+      # Interpolate yhat_loc and yhat_spr on new x values
+      int <- tibble(
+        x = new_x,
+        yhat_loc = castr::interpolate(x = x, y = yhat_loc, xout = new_x),
+        yhat_spr = castr::interpolate(x = x, y = yhat_spr, xout = new_x),
+      ) %>% 
+        mutate(
+          cv_type = cv_type_name,
+          fold = fold_name,
+          var_name = var_name,
+          .before = x
+        )
+      # Return the result
+      return(int)
+      
+    }) %>% 
+      bind_rows()
+    
+    ## Across fold, compute the weighted mean, using 1/var as weights (step 3)
+    mean_pdp <- int_pdp %>% 
+      group_by(cv_type, var_name, x) %>% 
+      summarise(
+        yhat_loc = wtd.mean(yhat_loc, weights = 1/(yhat_spr)^2),
+        yhat_spr = wtd.mean(yhat_spr, weights = 1/(yhat_spr)^2),
+        .groups = "drop"
+      ) %>% 
+      arrange(x)
+    
+    # Return the result
+    return(mean_pdp)
+  }) %>% 
+    bind_rows()
+  
+  return(mean_pdp)
+}
+
