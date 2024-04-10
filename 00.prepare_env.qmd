@@ -109,12 +109,6 @@ The table below details the predictors used for each layer.
 
 : Predictors set.
 
-::: callout-note
-## Differences from woa
-
-No more alkalinity and DIC. This is probably not important as these were not strong predictors in preliminary analyses.
-:::
-
 ### Processing
 
 We need:
@@ -409,7 +403,63 @@ walk(s_cline, image.plot, col = col_depth)
 s_cline <- do.call(abind, list(s_cline, along = 3))
 ```
 
-### Average over surface layer
+## GLODAP
+
+For nutrients in the bathypelagic layer.
+
+```{r read_glopap}
+# List of files
+files_gl <- list.files("data/raw/GLODAPv2.2016b_MappedClimatologies", pattern = ".nc", full.names = TRUE)
+# Get files for nutrients
+files_gl <- files_gl[str_detect(files_gl, "NO3|PO4|silicate")]
+# List of var names from files
+vars_gl <- str_extract(files_gl, "((?<=2016b\\.).+)(.(?=.nc))")
+
+# Open one file to get dimensions
+nc <- nc_open(files_gl[1])
+lon_gl <- ncvar_get(nc, "lon")
+rank_lon_gl <- rank(lon_gl) # rank of longitudes to reorganise
+lat_gl <- ncvar_get(nc, "lat")
+depth_gl <- ncvar_get(nc, "Depth")
+# Get indexes of bathypelagic depths
+depth_idx_gl <- which(depth_gl > 1000)
+# Get corresponding depths
+depth_gl <- ncvar_get(nc, "Depth", start = min(depth_idx_gl))
+# Number of depth values
+depth_count_gl <- length(depth_idx_gl)
+# Close the file
+nc_close(nc)
+
+# Read all files in parallel
+glodap <- mclapply(files_gl, function(file) {
+  
+  # get variable name from file
+  var <- str_extract(file, "((?<=2016b\\.).+)(.(?=.nc))")
+  
+  # open, read, close
+  nc <- nc_open(file)
+  block <- ncvar_get(nc, varid = var, start = c(1, 1, min(depth_idx_gl)), count = c(360, 180, depth_count_gl))
+  nc_close(nc)
+  
+  # reorder longitudes to centre on Greenwidch
+  block <- block[c(rank_lon_gl[lon_gl > 180], rank_lon_gl[lon_gl <= 180]),,]
+  
+  return(block)
+}, mc.cores = min(length(files_gl), n_cores))
+
+# Add variable names, not using original names
+names(glodap) <- c("nitrate", "phosphate", "silicate")
+
+# Correct longitudes from [20.5:379.5] to [-179.5:179.5]
+lon_gl <- ifelse(lon_gl > 360, lon_gl - 360, lon_gl) %>% sort()
+lon_gl <- lon_gl - 180
+
+image.plot(glodap$nitrate[,,1], col   = col_nit, main = "Nitrate top bathy")
+image.plot(glodap$phosphate[,,1], col = col_phos, main = "Phosphate top bathy")
+image.plot(glodap$silicate[,,1],  col = col_sil, main = "Silicate top bathy")
+```
+
+## Average over layers
 
 For each variable measured along depth, compute the average in
 
@@ -420,6 +470,7 @@ For each variable measured along depth, compute the average in
 -   the bathypelagic: below `r meso_bottom` m
 
 ```{r avg_layers}
+## For WOA
 # List variables to process and remove mld (it is a single value per pixel)
 vars <- names(woa)
 vars <- vars[vars != "mld"]
@@ -458,7 +509,7 @@ env_m <- pbmclapply(vars, function(my_var) {
         
         ## Bathypelagic
         # compute average if at least 3 values are present
-        depth_idx <- depth > meso_bottom # depth indices between 200 and 1000 m
+        depth_idx <- depth > meso_bottom # depth indices deeper than 1000 m
         keep <- X[i, j, depth_idx, m]
         if (sum(!is.na(keep)) > 2) {
           res$bathy[i, j, m] <- mean(keep, na.rm = TRUE)
@@ -475,6 +526,12 @@ names(env_m) <- vars
 
 # flatten and keep layers next to each other
 env_m <- unlist(env_m, recursive = FALSE)
+
+## Add bathy nutrients from GLODAP
+# Replicate 4 times to simulate seasons, will later be averaged into seasonal
+env_m$nitrate.bathy <-   replicate(4, apply(glodap$nitrate, c(1,2), mean, na.rm = TRUE)) %>% abind(along = 3)
+env_m$phosphate.bathy <- replicate(4, apply(glodap$phosphate, c(1,2), mean, na.rm = TRUE)) %>% abind(along = 3)
+env_m$silicate.bathy <-  replicate(4, apply(glodap$silicate, c(1,2), mean, na.rm = TRUE)) %>% abind(along = 3)
 ```
 
 ## Other climatologies
@@ -637,11 +694,6 @@ df_env_m$lon <- lon
 df_env_m$lat <- rep(lat, each = length(lon))
 df_env_m$season <- rep(1:4, each = length(lon)*length(lat))
 
-# Remove nutrients in the bathypelagic as these are only NAs and convert to tibble
-df_env_m <- df_env_m %>% 
-  select(-c(nitrate.bathy, silicate.bathy, phosphate.bathy)) %>% 
-  as_tibble() %>% 
-  select(lon, lat, season, everything())
 
 ## Create a column to distinguish between layers
 #df_env_m <- df_env_m %>% 
