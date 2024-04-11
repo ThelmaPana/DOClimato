@@ -24,6 +24,7 @@ library(abind)
 ## Plots
 library(cmocean)
 library(chroma)
+library(rnaturalearth)
 
 ## Modeling
 library(tidymodels)
@@ -115,6 +116,7 @@ div_pal <- scale_colour_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73
 #--------------------------------------------------------------------------#
 # For plots
 world <- fortify(map_data('world', wrap = c(-180, 180))) %>% rename(lon = long)
+world_sf <- ne_countries(scale = "medium", type = "countries", returnclass = "sf")
 
 # To compute inland points
 coast <- read_csv(here("data/raw/gshhg_world_c.csv"), col_types = cols())
