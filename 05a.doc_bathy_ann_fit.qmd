@@ -33,7 +33,7 @@ df_pred <- df_ann_bathy_pred
 # Response variable
 resp_var <- c("log_doc_bathy", "doc_bathy") # keep both untransformed and transformed predictor
 # Explanatory variables
-exp_vars <- df_fit %>% select(temperature_surf:nitrate_meso) %>% colnames()
+exp_vars <- df_fit %>% select(temperature_surf:nitrate_bathy) %>% colnames()
 # Metadata
 meta_vars <- c("lon", "lat", "season")
 ```

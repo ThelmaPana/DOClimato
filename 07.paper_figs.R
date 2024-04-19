@@ -64,6 +64,17 @@ rsquares <- res %>%
   rename(rsq = .estimate)
 
 
+# Nice table of rsquares
+rsquares %>% 
+  filter(season == "0") %>% 
+  #filter(cv_type == "stratified") %>% 
+  filter(cv_type == "spatial") %>% 
+  group_by(resp) %>% 
+  summarise(
+    mean = mean(rsq),
+    sd = sd(rsq)
+  )
+
 
 
 ## 1: Surface climatology ----
@@ -80,8 +91,13 @@ p1_theme <- theme(
   legend.key.width = unit(1.5, "cm"),
   legend.key.height = unit(2, "mm"),
   legend.direction = "horizontal",
-  legend.title.position = "top"
+  legend.title.position = "top",
+  legend.margin = margin(0, 0, 0, 0),
+  legend.box.margin = margin(-10, -10, 0, -10),
+  plot.margin = unit(c(0, 0, 0, 0), "mm"),
+  text = element_text(size = 8)
   )
+
 
 
 ## a + b
@@ -124,6 +140,23 @@ p1a <- ggplot(df_1ab)  +
 
 
 
+#toto <- df_1ab %>% mutate(log_doc_avg = log(doc_avg))
+#summary(toto)
+#
+#
+#
+#
+#ggplot(df_1ab)  +
+#  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+#  geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
+#  ggplot2::scale_fill_viridis_b(option = "F", trans = "log1p", breaks = round(exp(seq(from = min(toto$log_doc_avg), to = max(toto$log_doc_avg), length.out = 15)))) +
+#  ggplot2::scale_colour_viridis_b(option = "F", trans = "log1p", guide = "none", breaks = round(exp(seq(from = min(toto$log_doc_avg), to = max(toto$log_doc_avg), length.out = 15)))) +
+#  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
+#  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+#  p1_theme
+
+
+
 # Plot b
 p1b <- ggplot(df_1ab) + 
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
@@ -141,7 +174,7 @@ p1b <- ggplot(df_1ab)  +
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none") +
   coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
   labs(x = "Longitude", y = "Latitude", fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  p1_theme
+  p1_theme 
 
 
 
@@ -187,7 +220,7 @@ p1c <- ggplot(df_1c_other)  +
   ggplot2::scale_colour_viridis_c(trans = "log1p", guide = "none") +
   coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
   labs(x = "Longitude", y = "Latitude", fill = "Seasonal amplitude (μmol kg<sup>-1</sup>)") +
-  p1_theme
+  p1_theme 
 
 #df_1c <- res %>% 
 #  filter(resp == "doc_surf" & season != "0") %>% 
@@ -238,7 +271,7 @@ p1 <- p1a / p1b / p1c + plot_layout(axis_titles = "collect") + plot_annotation(t
 p1
 
 # Save
-ggsave(file = "figures/figure_1.png", plot = p1, width = 180, height = 250, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_1.png", plot = p1, width = 110, height = 188, unit = "mm", bg = "white")
 
 
 ## 2: Deep climatologies ----
@@ -256,7 +289,11 @@ p2_theme <- theme(
   legend.key.width = unit(1.2, "cm"),
   legend.key.height = unit(2, "mm"),
   legend.direction = "horizontal",
-  legend.title.position = "top"
+  legend.title.position = "top",
+  legend.margin = margin(0, 0, 0, 0),
+  legend.box.margin = margin(-10, -10, 0, -10),
+  plot.margin = unit(c(0, 0, 0, 0), "mm"),
+  text = element_text(size = 8)
   )
 
 ## a + b
@@ -390,7 +427,7 @@ p2 <- p2a + p2b + p2c + p2d + plot_annotation(tag_levels = "a") + plot_layout(gu
 p2
 
 ## Save
-ggsave(file = "figures/figure_2.png", plot = p2, width = 180, height = 130, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_2.png", plot = p2, width = 180, height = 110, unit = "mm", bg = "white")
 
 
 
@@ -482,7 +519,7 @@ df_3 <- df_3 %>%
     variable = str_replace_all(variable, "_", " "),
     variable = str_to_sentence(variable),
     variable = str_replace_all(variable, "Mld", "MLD"),
-    variable = str_replace_all(variable, "Bpp", "BBP"),
+    variable = str_replace_all(variable, "Bbp", "BBP"),
     variable = str_replace_all(variable, "Fmicro", "F micro"),
     variable = str_replace_all(variable, "surf", "surf."),
     variable = str_replace_all(variable, "meso", "meso."),
@@ -492,8 +529,8 @@ df_3 <- df_3 %>%
   mutate(variable = fct_inorder(variable))
 
 p3 <- ggplot(df_3) + 
-  geom_vline(data = full_model_vip, aes(xintercept = dropout_loss), colour = "grey", linewidth = 2) +
-  geom_boxplot(aes(x = dropout_loss, y = variable, colour = resp), outlier.size = 0.3) +
+  geom_vline(data = full_model_vip, aes(xintercept = dropout_loss), colour = "grey", linewidth = 1) +
+  geom_boxplot(aes(x = dropout_loss, y = variable, colour = resp), outlier.size = 0.3, linewidth = 0.2) +
   scale_colour_manual(
     values = c("#bdd7e7", "#6baed6", "#2171b5"),
     labels = c(
@@ -507,10 +544,13 @@ p3 <- ggplot(df_3) +
   theme(
     strip.background = element_blank(), strip.text.x = element_blank(), # empty facets
     legend.position = "inside", legend.position.inside = c(0.75, 0.5), # legend position
-    legend.background = element_rect(fill = "white", colour = NA)
+    legend.background = element_rect(fill = "white", colour = NA),
+    text = element_text(size = 8)
   )
 
 p3
+## Save
+ggsave(file = "figures/figure_3.png", plot = p3, width = 80, height = 100, unit = "mm", bg = "white")
 
 
 ## S1: Map of observations ----
