@@ -16,11 +16,13 @@ execute:
 source("utils.R")
 ```
 
-We will create 4 datasets, one for each prediction task:
+We will create 5 datasets, one for each prediction task:
 
 -   surface annual
 
 -   surface seasonal
+
+-   epipelagic annual
 
 -   mesopelagic annual
 
@@ -46,14 +48,14 @@ df_doc <- df_doc %>% rename_all(~ sub("\\.", "_", .x))
 # Env data in the surface layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
 df_ann_surf_pred <- df_env %>% 
   filter(season == 0) %>% 
-  select(-contains(c("meso", "bathy"))) %>% 
+  select(-contains(c("epi", "meso", "bathy"))) %>% 
   drop_na()
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_ann_surf_fit <- df_doc %>% 
   filter(season == 0) %>% 
-  select(-contains(c("meso", "bathy"))) %>% 
+  select(-contains(c("epi", "meso", "bathy"))) %>% 
   left_join(df_ann_surf_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_surf = log(doc_surf), .before = doc_surf)
@@ -97,14 +99,14 @@ ggplot(df_ann_surf_fit) +
 # Env data in the surface layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
 df_seas_surf_pred <- df_env %>% 
   filter(season != 0) %>% 
-  select(-contains(c("meso", "bathy"))) %>% 
+  select(-contains(c("epi", "meso", "bathy"))) %>% 
   drop_na()
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_seas_surf_fit <- df_doc %>% 
   filter(season != 0) %>% 
-  select(-contains(c("meso", "bathy"))) %>% 
+  select(-contains(c("epi", "meso", "bathy"))) %>% 
   left_join(df_seas_surf_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_surf = log(doc_surf), .before = doc_surf)
@@ -145,18 +147,58 @@ ggplot(df_seas_surf_fit) +
   ggtitle("Surface seasonal")
 ```
 
+### Epipelagic annual
+
+```{r epi_ann}
+## New predictions data
+# Env data in the surface + epipelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+df_ann_epi_pred <- df_env %>% filter(season == 0) %>% select(-contains("bathy")) %>% drop_na()
+
+## Model fitting data
+# Join env data with doc data, drop missing observations, apply log transformation to doc value
+df_ann_epi_fit <- df_doc %>% 
+  filter(season == 0) %>% 
+  select(-contains(c("surf", "meso", "bathy"))) %>% 
+  left_join(df_ann_epi_pred, by = join_by(lon, lat, season)) %>% 
+  drop_na() %>% 
+  mutate(log_doc_epi = log(doc_epi), .before = doc_epi)
+```
+
+Plot map of coverage.
+
+```{r epi_ann_cov}
+# Plot coverage of data
+# points are model fitting data
+# blue rectangles are the prediction area
+ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(data = df_ann_epi_pred, aes(x = lon, y = lat), fill = "steelblue3", alpha = 0.5) +
+  geom_point(data = df_ann_epi_fit, aes(x = lon, y = lat, colour = log_doc_epi), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(option = "A") +
+  coord_quickmap(expand = 0) +
+  ggtitle("Epi annual")
+```
+
+Plot doc distributions, after log-transformation
+
+```{r ann_epi_doc}
+ggplot(df_ann_epi_fit) + geom_histogram(aes(x = log_doc_epi)) + ggtitle("Epi annual")
+```
+
+OK-ish distribution.
+
 ### Mesopelagic annual
 
 ```{r meso_ann}
 ## New predictions data
-# Env data in the surface + mesopelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
+# Env data in the surface + epipelagic + mesopelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
 df_ann_meso_pred <- df_env %>% filter(season == 0) %>% select(-contains("bathy")) %>% drop_na()
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_ann_meso_fit <- df_doc %>% 
   filter(season == 0) %>% 
-  select(-contains(c("surf", "bathy"))) %>% 
+  select(-contains(c("surf", "epi", "bathy"))) %>% 
   left_join(df_ann_meso_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_meso = log(doc_meso), .before = doc_meso)
@@ -198,7 +240,7 @@ df_ann_bathy_pred <- df_env %>% filter(season == 0) %>% drop_na()
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_ann_bathy_fit <- df_doc %>% 
   filter(season == 0) %>% 
-  select(-contains(c("surf", "meso"))) %>% 
+  select(-contains(c("surf", "epi", "meso"))) %>% 
   left_join(df_ann_bathy_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_bathy = log(doc_bathy), .before = doc_bathy)

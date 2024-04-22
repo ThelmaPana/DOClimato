@@ -23,9 +23,11 @@ source("utils.R")
 
 ### List
 
-Aim to predict DOC in 3 layers:
+Aim to predict DOC in 4 layers:
 
 -   surface: 0-10 m
+
+-   epipelagic: 10 - 200 m
 
 -   mesopelagic: 200 - 1000 m
 
@@ -33,79 +35,101 @@ Aim to predict DOC in 3 layers:
 
 The table below details the predictors used for each layer.
 
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| What        | From where | Timescale | Depth range | Layers      | Predictor for          |
-+=============+============+===========+=============+=============+========================+
-| Temperature | WOA        | Seasonal  | 0-5500      | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   bathy   | -   bathy              |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Salinity    | WOA        | Seasonal  | 0-5500      | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   bathy   | -   bathy              |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Density     | WOA        | Seasonal  | 0-5500?     | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   bathy   | -   bathy              |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Oxygen      | WOA        | Seasonal  | 0-1500      | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   bathy   | -   bathy              |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| AOU         | WOA        | Seasonal  | 0-1500?     | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   bathy   | -   bathy              |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Silicate    | WOA        | Seasonal  | 0-800       | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Phosphate   | WOA        | Seasonal  | 0-800       | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Nitrate     | WOA        | Seasonal  | 0-800       | -   surface | -   surface/meso/bathy |
-|             |            |           |             |             |                        |
-|             |            |           |             | -   meso    | -   meso/bathy         |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| MLD         | WOA        | Seasonal  | Depth value |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Thermocline | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Pycnocline  | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| N-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| P-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| S-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Z~eu~       | Cael       | Monthly   | Depth value |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| NPP         | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| BBP         | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Fmicro      | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| log(chl)    | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| PIC         | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| φ PSD slope | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
-| Irradiance  | Cael       | Monthly   | Surface     |             | surface/meso/bathy     |
-+-------------+------------+-----------+-------------+-------------+------------------------+
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| What        | From where | Timescale | Depth range | Layers      | Predictor for              |
++=============+============+===========+=============+=============+============================+
+| Temperature | WOA        | Seasonal  | 0-5500      | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Salinity    | WOA        | Seasonal  | 0-5500      | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Density     | WOA        | Seasonal  | 0-5500?     | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Oxygen      | WOA        | Seasonal  | 0-1500      | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| AOU         | WOA        | Seasonal  | 0-1500?     | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Silicate    | WOA        | Seasonal  | 0-800       | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Phosphate   | WOA        | Seasonal  | 0-800       | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Nitrate     | WOA        | Seasonal  | 0-800       | -   surface | -   surface/epi/meso/bathy |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   epi     | -   epi/meso/bathy         |
+|             |            |           |             |             |                            |
+|             |            |           |             | -   meso    | -   meso/bathy             |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Silicate    | GlodapV2   | Annual    | 0-5500      | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Phosphate   | GlodapV2   | Annual    | 0-5500      | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Nitrate     | GlodapV2   | Annual    | 0-5500      | -   bathy   | -   bathy                  |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| MLD         | WOA        | Seasonal  | Depth value |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Thermocline | To compute | Seasonal  | Depth value |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Pycnocline  | To compute | Seasonal  | Depth value |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| N-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| P-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| S-cline     | To compute | Seasonal  | Depth value |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Z~eu~       | Cael       | Monthly   | Depth value |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| NPP         | Cael       | Monthly   | Surface     |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| BBP         | Cael       | Monthly   | Surface     |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Fmicro      | Cael       | Monthly   | Surface     |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| log(chl)    | Cael       | Monthly   | Surface     |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| PIC         | Cael       | Monthly   | Surface     |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| φ PSD slope | Cael       | Monthly   | Surface     |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
+| Irradiance  | Cael       | Monthly   | Surface     |             | surface/meso/bathy         |
++-------------+------------+-----------+-------------+-------------+----------------------------+
 
 : Predictors set.
 
@@ -465,9 +489,11 @@ For each variable measured along depth, compute the average in
 
 -   the surface layer: `r min(depth)` to `r surface_bottom` m.
 
--   the mesopelagic layer: `r meso_top` to `r meso_bottom` m
+-   the epipelagic layer: `r surface_bottom` to `r meso_top` m.
 
--   the bathypelagic: below `r meso_bottom` m
+-   the mesopelagic layer: `r meso_top` to `r meso_bottom` m.
+
+-   the bathypelagic: below `r meso_bottom` m.
 
 ```{r avg_layers}
 ## For WOA
@@ -483,7 +509,7 @@ env_m <- pbmclapply(vars, function(my_var) {
 
   # prepare storage
   res <- array(NA, dim(X)[-3])
-  res <- list(surf = res, meso = res, bathy = res)
+  res <- list(surf = res, epi = res, meso = res, bathy = res)
 
   # for each pixel of each month
   for (i in seq(along = lon)) {
@@ -495,6 +521,15 @@ env_m <- pbmclapply(vars, function(my_var) {
         keep <- X[i, j, depth_idx, m]
         if (percent_na(keep) <= 1/3) {
           res$surf[i, j, m] <- mean(keep, na.rm = TRUE)
+         # otherwise just leave the NA value
+        }
+        
+        ## Epipelagic
+        # compute average if 80% of data is present
+        depth_idx <- depth > surface_bottom & depth <= meso_top # depth indices between 10 and 200 m
+        keep <- X[i, j, depth_idx, m]
+        if (percent_na(keep) <= 0.2) {
+          res$epi[i, j, m] <- mean(keep, na.rm = TRUE)
          # otherwise just leave the NA value
         }
         
@@ -775,8 +810,8 @@ df_env_ann <- df_env_m %>%
   summarise_all(mean, na.rm = TRUE) %>% 
   ungroup()
 
-# Drop seasonal data for meso and bathy
-df_env_m <- df_env_m %>% select(-contains(c("meso", "bathy")))
+# Drop seasonal data for epi, meso and bathy
+df_env_m <- df_env_m %>% select(-contains(c("epi", "meso", "bathy")))
 
 # Store annual with monthly data
 df_env <- bind_rows(df_env_m, df_env_ann)
@@ -823,7 +858,7 @@ plot_list
 
 ### Seasonal
 
-Here we do not expect maps in the meso and bathypelagic.
+Here we do not expect maps in the epi, meso and bathypelagic.
 
 ```{r plot_all_seas}
 #| cache.lazy: false

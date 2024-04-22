@@ -21,8 +21,6 @@ source("utils.R")
 
 ## Read data
 
-Keep data between 0 and 10 meters.
-
 ```{r read_doc}
 #|warning: false
 # Read a first time to get column names
@@ -100,6 +98,8 @@ DOC observations are separated in 3 layers:
 
 -   surface (depth ⩽ `r surface_bottom`)
 
+-   epi pelagic (depth \> `r surface_bottom` & depth ⩽ `r meso_top`)
+
 -   mesopelagic (depth \> `r meso_top` & depth ⩽ `r meso_bottom`)
 
 -   surface (depth \> `r meso_bottom`)
@@ -108,6 +108,7 @@ DOC observations are separated in 3 layers:
 df_doc <- df_doc %>% 
   mutate(layer = case_when(
     press <= surface_bottom ~ "surf",
+    press > surface_bottom & press <= meso_top ~ "epi",   
     press > meso_top & press <= meso_bottom ~ "meso",
     press > meso_bottom ~ "bathy",
   )) %>% 
@@ -172,7 +173,7 @@ Seasons are defined as:
 
 -   season 1 = DJF
 
--   season2 = MAM
+-   season 2 = MAM
 
 -   season 3 = JJA
 
