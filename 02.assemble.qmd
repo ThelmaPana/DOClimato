@@ -152,7 +152,7 @@ ggplot(df_seas_surf_fit) +
 ```{r epi_ann}
 ## New predictions data
 # Env data in the surface + epipelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
-df_ann_epi_pred <- df_env %>% filter(season == 0) %>% select(-contains("bathy")) %>% drop_na()
+df_ann_epi_pred <- df_env %>% filter(season == 0) %>% select(-contains(c("meso", "bathy"))) %>% drop_na()
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -350,6 +350,7 @@ For each prediction task (surface annual, surface seasonal, meso annual and bath
 ```{r save}
 save(df_ann_surf_fit, df_ann_surf_pred, file = "data/02.ann_surf.Rdata")
 save(df_seas_surf_fit, df_seas_surf_pred, file = "data/02.seas_surf.Rdata")
+save(df_ann_epi_fit, df_ann_epi_pred, file = "data/02.ann_epi.Rdata")
 save(df_ann_meso_fit, df_ann_meso_pred, file = "data/02.ann_meso.Rdata")
 save(df_ann_bathy_fit, df_ann_bathy_pred, file = "data/02.ann_bathy.Rdata")
 ```
