@@ -68,6 +68,8 @@ df_doc <- df_doc %>%
   drop_na(doc) #%>% # drop missing values
  # mutate(date = ymd(date)) # format date
 summary(df_doc)
+
+ggplot(df_doc) + geom_bar(aes(x = doc_flag_w))
 ```
 
 There is also a little cleaning to do with dates: the TRACERS (2013) cruise reported dates as `201303X` , but after inspecting boat trajectory (available at <https://www.bco-dmo.org/dataset/549090>) and comparing with DOC sampling location, it appears that those dates should be `2013030X`.

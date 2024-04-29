@@ -874,3 +874,125 @@ for (i in 1:length(var_names)){
 }
 plot_list
 ```
+
+## Bathymetry data
+
+Bathymetry data is used to:
+
+-   figure out which pixels should be predicted in each layer
+
+-   compute the total DOC estimating by integrating across layers
+
+```{r load_bathym}
+# Download NOAA data, only once
+if (download_bathy) {
+  dir.create("data/raw/bathy", showWarnings = FALSE, recursive = TRUE)
+  a <- getNOAA.bathy(lon1 = -180, lon2 = 180, lat1 = 90, lat2 = -90, resolution = 10, keep = TRUE, path = "data/raw/bathy")
+  plot(a, image = TRUE, deep = -6000, shallow = 0, step = 1000)
+  
+}
+
+# Read the csv file containing the bathymetry data
+df_bat <- read_delim(
+  "data/raw/bathy/marmap_coord_-180;-90;180;90_res_10.csv", 
+  delim = ",",
+  show_col_types = FALSE
+  ) %>% 
+  rename(lon = V1, lat = V2, bathy = V3) %>% 
+  filter(bathy <= 0) %>% 
+  mutate(bathy = abs(bathy))
+
+# Round to match DOC & env pixels
+df_bat <- df_bat %>% 
+  mutate(
+    lon = roundp(lon, precision = 1, f = floor) + 0.5,
+    lat = roundp(lat, precision = 1, f = floor) + 0.5
+  ) %>% 
+  filter(between(lat, -90, 90) & between(lon, -180, 180)) %>% 
+  group_by(lon, lat) %>% 
+  summarise(bottom = mean(bathy, na.rm = TRUE), .groups = "drop")
+
+ggplot(df_bat) +
+  geom_raster(aes(x = lon, y = lat, fill = bottom)) +
+  scale_fill_cmocean(name = "deep") +
+  coord_quickmap(expand = 0)
+# We need to remove some inland points (especially in the Antarctic) and internal seas
+```
+
+Remove inland and internal seas.
+
+```{r remove_inland_bathy}
+lons <- df_bat$lon
+lats <- df_bat$lat
+inland <- sp::point.in.polygon(lons, lats, coast$lon, coast$lat) == 1
+ggplot(df_bat) +
+  geom_raster(aes(x = lon, y = lat, fill = inland)) +
+  scale_fill_viridis_d() +
+  scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  coord_quickmap()
+
+# remove South Pole
+inland[lats < -85] <- TRUE
+
+# remove Black Sea too
+inland[between(lons, 20, 50) & between(lats, 41, 50)] <- TRUE
+
+# remove Baltic Sea too
+inland[between(lons, 12, 30) & between(lats, 52, 66)] <- TRUE
+
+ggplot(df_bat) +
+  geom_raster(aes(x = lon, y = lat, fill = inland)) +
+  scale_fill_viridis_d() +
+  scale_x_continuous(expand = c(0,0)) + scale_y_continuous(expand = c(0,0)) +
+  coord_quickmap()
+
+# blankout points in land
+df_bat[inland, "bottom"] <- NA
+# NB: this works because `inland` gets automatically repeated for everymonth
+
+# Plot result
+ggplot(df_bat) +
+  geom_raster(aes(x = lon, y = lat, fill = bottom)) +
+  scale_fill_cmocean(name = "deep") +
+  coord_quickmap(expand = 0)
+# Gray areas were removed, good !
+```
+
+For each pixel, using the bottom depth, compute whether or not a prediction should be generated for each layer.
+
+```{r bathym_lay}
+#| fig-column: body-outset
+#| out-width: 100%
+# From bathymetry, compute whether each pixel of each layer should be predicted or not
+df_inc <- df_bat %>%  
+  rowwise() %>% 
+  # if the bottom is shallower than the top of any layer, exclude from that layer
+  mutate(
+    bathy_include = ifelse(bottom <= 1000, NA, TRUE),
+    meso_include = ifelse(bottom <= 200, NA, TRUE),
+    epi_include = ifelse(bottom <= 10, NA, TRUE),
+    surf_include = ifelse(is.na(bottom), NA, TRUE) # as long as there is bathymetry data, it is ocean, thus surface exists
+  ) %>% 
+  ungroup() %>% 
+  select(-bottom)
+
+# Plot result
+df_inc %>% 
+  pivot_longer(contains("include"), names_to = "layer", values_to = "include") %>% 
+  mutate(
+    layer = str_replace(layer, "_include", ""),
+    layer = factor(layer, levels = c("surf", "epi", "meso", "bathy"))
+    ) %>% 
+  drop_na() %>% 
+  ggplot() +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  geom_raster(aes(x = lon, y = lat, fill = include)) +
+  coord_quickmap(expand = 0) +
+  facet_wrap(~layer)
+```
+
+Save inclusion
+
+```{r save_inc}
+save(df_inc, file = "data/00.bathymetry_inc.Rdata")
+```

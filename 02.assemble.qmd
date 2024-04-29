@@ -34,6 +34,9 @@ We will create 5 datasets, one for each prediction task:
 load("data/00.all_env.Rdata")
 load("data/01.doc_data.Rdata")
 
+# Load layer inclusion
+load("data/00.bathymetry_inc.Rdata")
+
 # Clean names data: replace . by _
 df_env <- df_env %>% rename_all(~ sub("\\.", "_", .x))
 df_doc <- df_doc %>% rename_all(~ sub("\\.", "_", .x))
@@ -49,7 +52,26 @@ df_doc <- df_doc %>% rename_all(~ sub("\\.", "_", .x))
 df_ann_surf_pred <- df_env %>% 
   filter(season == 0) %>% 
   select(-contains(c("epi", "meso", "bathy"))) %>% 
-  drop_na()
+  left_join(df_inc %>% select(lon, lat, surf_include), by = join_by(lon, lat)) %>% 
+  filter(surf_include) %>% 
+  select(-surf_include)
+
+# Detect pixels where less that 1/4 of predictors are missing
+sel_pix <- df_ann_surf_pred %>% 
+  pivot_longer(temperature_surf:par, names_to = "variable", values_to = "value") %>% 
+  group_by(lon, lat, season) %>% 
+  summarise_all(list(percent_na)) %>% 
+  ungroup() %>%
+  rename(percent_na = value) %>% 
+  filter(percent_na < 0.10) %>% 
+  select(lon, lat, season) %>% 
+  mutate(use = TRUE)
+
+# Keep only these pixels
+df_ann_surf_pred <- df_ann_surf_pred %>% 
+  left_join(sel_pix, by = join_by(lon, lat, season)) %>% 
+  filter(use) %>% 
+  select(-use)
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -100,7 +122,26 @@ ggplot(df_ann_surf_fit) +
 df_seas_surf_pred <- df_env %>% 
   filter(season != 0) %>% 
   select(-contains(c("epi", "meso", "bathy"))) %>% 
-  drop_na()
+  left_join(df_inc %>% select(lon, lat, surf_include), by = join_by(lon, lat)) %>% 
+  filter(surf_include) %>% 
+  select(-surf_include)
+
+# Detect pixels where less that 1/4 of predictors are missing
+sel_pix <- df_seas_surf_pred %>% 
+  pivot_longer(temperature_surf:par, names_to = "variable", values_to = "value") %>% 
+  group_by(lon, lat, season) %>% 
+  summarise_all(list(percent_na)) %>% 
+  ungroup() %>%
+  rename(percent_na = value) %>% 
+  filter(percent_na < 0.10) %>% 
+  select(lon, lat, season) %>% 
+  mutate(use = TRUE)
+
+# Keep only these pixels
+df_seas_surf_pred <- df_seas_surf_pred %>% 
+  left_join(sel_pix, by = join_by(lon, lat, season)) %>% 
+  filter(use) %>% 
+  select(-use)
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -152,7 +193,30 @@ ggplot(df_seas_surf_fit) +
 ```{r epi_ann}
 ## New predictions data
 # Env data in the surface + epipelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
-df_ann_epi_pred <- df_env %>% filter(season == 0) %>% select(-contains(c("meso", "bathy"))) %>% drop_na()
+df_ann_epi_pred <- df_env %>% 
+  filter(season == 0) %>% 
+  select(-contains(c("meso", "bathy"))) %>% 
+  filter(if_any(contains("epi"), ~!is.na(.))) %>% 
+  left_join(df_inc %>% select(lon, lat, epi_include), by = join_by(lon, lat)) %>% 
+  filter(epi_include) %>% 
+  select(-epi_include)
+
+# Detect pixels where less that 1/4 of predictors are missing
+sel_pix <- df_ann_epi_pred %>% 
+  pivot_longer(temperature_surf:nitrate_epi, names_to = "variable", values_to = "value") %>% 
+  group_by(lon, lat, season) %>% 
+  summarise_all(list(percent_na)) %>% 
+  ungroup() %>%
+  rename(percent_na = value) %>% 
+  filter(percent_na < 0.10) %>% 
+  select(lon, lat, season) %>% 
+  mutate(use = TRUE)
+
+# Keep only these pixels
+df_ann_epi_pred <- df_ann_epi_pred %>% 
+  left_join(sel_pix, by = join_by(lon, lat, season)) %>% 
+  filter(use) %>% 
+  select(-use)
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -192,7 +256,29 @@ OK-ish distribution.
 ```{r meso_ann}
 ## New predictions data
 # Env data in the surface + epipelagic + mesopelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
-df_ann_meso_pred <- df_env %>% filter(season == 0) %>% select(-contains("bathy")) %>% drop_na()
+df_ann_meso_pred <- df_env %>% 
+  filter(season == 0) %>% 
+  select(-contains("bathy")) %>% 
+  left_join(df_inc %>% select(lon, lat, meso_include), by = join_by(lon, lat)) %>% 
+  filter(meso_include) %>% 
+  select(-meso_include)
+
+# Detect pixels where less that 1/4 of predictors are missing
+sel_pix <- df_ann_meso_pred %>% 
+  pivot_longer(temperature_surf:nitrate_meso, names_to = "variable", values_to = "value") %>% 
+  group_by(lon, lat, season) %>% 
+  summarise_all(list(percent_na)) %>% 
+  ungroup() %>%
+  rename(percent_na = value) %>% 
+  filter(percent_na < 0.10) %>% 
+  select(lon, lat, season) %>% 
+  mutate(use = TRUE)
+
+# Keep only these pixels
+df_ann_meso_pred <- df_ann_meso_pred %>% 
+  left_join(sel_pix, by = join_by(lon, lat, season)) %>% 
+  filter(use) %>% 
+  select(-use)
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -234,7 +320,28 @@ OK-ish distribution.
 ```{r bathy_ann}
 ## New predictions data
 # Env data in the surface + mesopelagic + bathypelagic layer, annual, to be used for new predictions. NB: this requires droping any row with missing values
-df_ann_bathy_pred <- df_env %>% filter(season == 0) %>% drop_na()
+df_ann_bathy_pred <- df_env %>% 
+  filter(season == 0) %>% 
+  left_join(df_inc %>% select(lon, lat, bathy_include), by = join_by(lon, lat)) %>% 
+  filter(bathy_include) %>% 
+  select(-bathy_include)
+
+# Detect pixels where less that 1/4 of predictors are missing
+sel_pix <- df_ann_bathy_pred %>% 
+  pivot_longer(temperature_surf:nitrate_bathy, names_to = "variable", values_to = "value") %>% 
+  group_by(lon, lat, season) %>% 
+  summarise_all(list(percent_na)) %>% 
+  ungroup() %>%
+  rename(percent_na = value) %>% 
+  filter(percent_na < 0.10) %>% 
+  select(lon, lat, season) %>% 
+  mutate(use = TRUE)
+
+# Keep only these pixels
+df_ann_bathy_pred <- df_ann_bathy_pred %>% 
+  left_join(sel_pix, by = join_by(lon, lat, season)) %>% 
+  filter(use) %>% 
+  select(-use)
 
 ## Model fitting data
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
@@ -273,11 +380,7 @@ OK-ish distribution.
 
 ## Remove extreme values
 
-::: callout-important
-In the surface layer, both in annual and seasonal, there are a few high values of log(doc). We need to get rid of these, **with a good justification**.
-:::
-
-The very high DOC values in the surface layer are found at high latitudes in the north (Kara Sea and Laptev Sea). Let’s remove them.
+The very high DOC values in the surface layer are found at high latitudes in the north (Kara Sea and Laptev Sea). This is because in these areas there are strong river discharge bringing a lot  of DOC into the sea, thus these values are not representative of oceanic processes. Let’s remove them.
 
 -   Kara Sea: 50-100° E, 70-80°N
 
