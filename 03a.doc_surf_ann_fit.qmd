@@ -152,7 +152,17 @@ xgb_spec <- boost_tree(
   learn_rate = tune()
 ) %>%
   set_mode("regression") %>%
-  set_engine("xgboost")
+  set_engine("lightgbm")
+
+## Define a lgbm model with hyperparameters to tune
+#xgb_spec <- boost_tree(
+#  trees = tune(),
+#  tree_depth = tune(),
+#  min_n = tune(),
+#  learn_rate = tune()
+#) %>%
+#  set_mode("regression") %>%
+#  set_engine("lightgbm")
 ```
 
 We also generate the formula from the explanatory variables. We also keep doc for now, but it will be removed from predictors when generating the recipe within the gridsearch.
@@ -181,7 +191,9 @@ xgb_grid <- grid_latin_hypercube(
 Let’s loop on cv folds. For each fold, a gridsearch is performed using nested CV on training data, and performance are assessed on the test data. This is run in parallel on `r n_cores` cores.
 
 ```{r gridsearch}
-res <- pbmclapply(1:nrow(folds), function(i){
+res <- lapply(1:nrow(folds), function(i){
+  
+  message(paste0("Processing fold ", i, " out of ", nrow(folds)))
   
   ## Get fold
   x <- folds[i,]
@@ -201,6 +213,7 @@ res <- pbmclapply(1:nrow(folds), function(i){
 
   ## Gridsearch
   set.seed(seed)
+  doParallel::registerDoParallel(n_cores)
   xgb_res <- tune_grid(
     xgb_wflow,
     resamples = x$inner_resamples[[1]],
@@ -239,9 +252,6 @@ res <- pbmclapply(1:nrow(folds), function(i){
     filter(variable != "_baseline_")
 
   # CP profiles for all variables
-  #selected_points <- ingredients::select_sample(df_train, n = 100, seed = seed)
-  #cp_profiles <- ingredients::ceteris_paribus(xgb_explain, selected_points) %>% as_tibble()
-  # CP profiles
   cp_profiles <- lapply(exp_vars, function(my_var){
     model_profile(explainer = xgb_explain, variables = my_var)$cp_profiles %>% as_tibble()
   }) %>%
@@ -252,6 +262,8 @@ res <- pbmclapply(1:nrow(folds), function(i){
     select(-doc_surf) %>% 
     rename(pred_doc_log = .pred) %>% 
     relocate(pred_doc_log, .after = lat)
+  
+  doParallel::stopImplicitCluster()
   
   ## Return results
   return(tibble(
@@ -264,7 +276,7 @@ res <- pbmclapply(1:nrow(folds), function(i){
       cp_profiles = list(cp_profiles),
       new_preds = list(new_preds)
     ))
-}, mc.cores = 10) %>%
+}) %>%
   bind_rows()
 ```
 

@@ -17,8 +17,9 @@ execute:
 ```{r set-up}
 #|output: false
 #|cache: false
+#|cache.lazy: false
 source("utils.R")
-load("data/05.doc_bathy_ann_pred.Rdata")
+load("data/06.doc_bathy_ann_pred.Rdata")
 ```
 
 ## Model evaluation

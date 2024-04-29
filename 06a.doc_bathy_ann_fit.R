@@ -1,20 +1,4 @@
----
-title: "Predict annual bathypelagic DOC"
-subtitle: "Fit a XGBoost model to predict DOC from environmental data and apply it to new data."
-author: "Thelma Panaïotis"
-format:
-  html:
-    toc: true
-    embed-resources: true
-editor: visual
-execute:
-  cache: true
-  warning: false
----
-
-## Set-up and load data
-
-```{r set_up}
+## ----set_up-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #|output: false
 #|cache: false
 source("utils.R")
@@ -23,34 +7,22 @@ output_filename <- "data/06.doc_bathy_ann_pred.Rdata"
 
 df_fit <- df_ann_bathy_fit
 df_pred <- df_ann_bathy_pred
-```
 
-## Data preparation
 
-### Variable roles
-
-```{r roles}
+## ----roles--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Response variable
 resp_var <- c("log_doc_bathy", "doc_bathy") # keep both untransformed and transformed predictor
 # Explanatory variables
 exp_vars <- df_fit %>% select(temperature_surf:nitrate_bathy) %>% colnames()
 # Metadata
 meta_vars <- c("lon", "lat", "season")
-```
 
-## Data exploration
 
-### Distribution of response variable
-
-We want the response variable to be \~normally distributed. Let’s plot the distribution of log_doc_bathy.
-
-```{r resp_dist}
+## ----resp_dist----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ggplot(df_fit) + geom_histogram(aes(x = log_doc_bathy), bins = 100)
-```
 
-Not too bad! Let’s proceed.
 
-```{r resp_map}
+## ----resp_map-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #| fig-column: body-outset
 #| out-width: 100%
 ggplot(df_fit) + 
@@ -58,11 +30,9 @@ ggplot(df_fit) +
   geom_point(aes(x = lon, y = lat, colour = log_doc_bathy), size = 0.5) +
   ggplot2::scale_colour_viridis_c(option = "A") +
   coord_quickmap(expand = 0)
-```
 
-### Explanatory variables
 
-```{r exp_pca}
+## ----exp_pca------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #| fig-column: body-outset
 #| out-width: 100%
 # Need to remove lon and lat and to scale because units differ between variables
@@ -85,27 +55,9 @@ inds <- df_fit %>% bind_cols(inds)
 # Plot maps of PCA projections
 ggmap(inds, "dim1", type = "point", palette = div_pal)
 ggmap(inds, "dim2", type = "point", palette = div_pal)
-```
 
-## Data split
 
-To better assess the performance of our model and get a distribution of R² instead of a single value, we will use nested cross-validation.
-
-Instead of splitting the data into train and test sets and get a single estimate of R² on the test set, we will use nested cross-validation so that we have several repeats of train/test splits and thus a distribution of R² values. For each fold, a second cross-validation is performed within the training set in order to tune the hyperparameters.
-
-We use 10-fold cross-validation:
-
--   10% of data for testing
-
--   90% of data for training. This subset is used for nested cross-validation with:
-
-    -   10% of data for validation
-
-    -   90% of data for learning
-
-For meso and bathypelagic, only stratified on deciles of the response variable (`doc_log`) is used.
-
-```{r split}
+## ----split--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 set.seed(seed)
 # Stratified CV on deciles of response variable
 folds <- nested_cv(
@@ -113,21 +65,9 @@ folds <- nested_cv(
     outside = vfold_cv(v = 10, strata = log_doc_bathy, breaks = 9),
     inside = vfold_cv(v = 10, strata = log_doc_bathy, breaks = 9)) %>%
     mutate(cv_type = "stratified")
-```
 
-## Model definition
 
-Let’s define a XGBoost regression model, with tunable hyperparameters:
-
--   `trees`: number of trees
-
--   `tree_depth`: maximum depth (i.e. number of splits) in a tree
-
--   `min_n`: minimum number of objects in a node to split further
-
--   `learn_rate`
-
-```{r def_mod}
+## ----def_mod------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Define a xgboost model with hyperparameters to tune
 xgb_spec <- boost_tree(
   trees = tune(),
@@ -136,19 +76,15 @@ xgb_spec <- boost_tree(
   learn_rate = tune()
 ) %>%
   set_mode("regression") %>%
-  set_engine("lightgbm")
-```
+  set_engine("xgboost")
 
-We also generate the formula from the explanatory variables. We also keep doc for now, but it will be removed from predictors when generating the recipe within the gridsearch.
 
-```{r def_form}
+## ----def_form-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Generate formula from list of explanatory variables
 xgb_form <- as.formula(paste("log_doc_bathy ~ ", paste(c("doc_bathy", exp_vars), collapse = " + "), sep = ""))
-```
 
-Finally, let’s define the grid for the gridsearch (only one grid is used for all folds).
 
-```{r def_grid}
+## ----def_grid-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Define one grid for all folds
 set.seed(seed)
 xgb_grid <- grid_latin_hypercube(
@@ -156,18 +92,12 @@ xgb_grid <- grid_latin_hypercube(
   learn_rate(),
   tree_depth(),
   min_n(),
-  size = 5
+  size = 30
 )
-```
 
-## Models fitting
 
-Let’s loop on cv folds. For each fold, a gridsearch is performed using nested CV on training data, and performance are assessed on the test data. This is run in parallel on `r n_cores` cores.
-
-```{r gridsearch}
-res <- lapply(1:nrow(folds), function(i){
-  
-  message(paste0("Processing fold ", i, " out of ", nrow(folds)))
+## ----gridsearch---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+res <- pbmclapply(1:nrow(folds), function(i){
   
   ## Get fold
   x <- folds[i,]
@@ -187,7 +117,6 @@ res <- lapply(1:nrow(folds), function(i){
 
   ## Gridsearch
   set.seed(seed)
-  doParallel::registerDoParallel(n_cores)
   xgb_res <- tune_grid(
     xgb_wflow,
     resamples = x$inner_resamples[[1]],
@@ -240,8 +169,6 @@ res <- lapply(1:nrow(folds), function(i){
     rename(pred_doc_log = .pred) %>% 
     relocate(pred_doc_log, .after = lat)
   
-  doParallel::stopImplicitCluster()
-  
   ## Return results
   return(tibble(
       resp = resp_var[2],
@@ -253,13 +180,11 @@ res <- lapply(1:nrow(folds), function(i){
       cp_profiles = list(cp_profiles),
       new_preds = list(new_preds)
     ))
-}) %>%
+}, mc.cores = 10) %>%
   bind_rows()
-```
 
-## Save results
 
-```{r save}
+## ----save---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #|cache.lazy: false
 save(res, file = output_filename)
-```
+

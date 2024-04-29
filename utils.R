@@ -20,6 +20,7 @@ library(Hmisc)
 library(sf)
 library(spatialsample)
 library(abind)
+library(marmap)
 
 ## Plots
 library(cmocean)
@@ -29,6 +30,7 @@ library(rnaturalearth)
 ## Modeling
 library(tidymodels)
 library(DALEXtra)
+library(bonsai)
 
 
 
@@ -40,7 +42,7 @@ set.seed(seed)
 
 
 # Number of cores for parallel computing
-n_cores <- 14
+n_cores <- 10
 
 # GGplot theme
 theme_set(theme_minimal())
@@ -59,6 +61,9 @@ woa_dir <- "~/Documents/work/datasets/woa"
 
 # Whether to perform download for WOA data
 download_woa <- FALSE
+
+# Whether to perform download for bathymetry data
+download_bathy <- FALSE
 
 # Max depth to compute clines from WOA
 max_depth_woa <- 500 # compromise between coverage and computation cost

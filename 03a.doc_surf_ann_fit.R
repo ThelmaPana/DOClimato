@@ -1,15 +1,17 @@
-## ----set_up--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----set_up----------------------------------------------------------------------------------------------------------------------------------------------------
 #|output: false
 #|cache: false
+message("Reading data")
 source("utils.R")
-load("data/02.seas_surf.Rdata")
-output_filename <- "data/07.doc_surf_seas_pred.Rdata"
+load("data/02.ann_surf.Rdata")
+output_filename <- "data/03.doc_surf_ann_pred.Rdata"
 
-df_fit <- df_seas_surf_fit
-df_pred <- df_seas_surf_pred
+df_fit <- df_ann_surf_fit
+df_pred <- df_ann_surf_pred
 
 
-## ----roles---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----roles-----------------------------------------------------------------------------------------------------------------------------------------------------
+message("Roles")
 # Response variable
 resp_var <- c("log_doc_surf", "doc_surf") # keep both untransformed and transformed predictor
 # Explanatory variables
@@ -18,27 +20,26 @@ exp_vars <- df_fit %>% select(temperature_surf:par) %>% colnames()
 meta_vars <- c("lon", "lat", "season")
 
 
-## ----resp_dist-----------------------------------------------------------------------------------------------------------------------------------------------------------------
-ggplot(df_fit) + geom_histogram(aes(x = log_doc_surf), bins = 100) + facet_wrap(~season)
+## ----resp_dist-------------------------------------------------------------------------------------------------------------------------------------------------
+ggplot(df_fit) + geom_histogram(aes(x = log_doc_surf), bins = 100)
 
 
-## ----resp_map------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----resp_map--------------------------------------------------------------------------------------------------------------------------------------------------
 #| fig-column: body-outset
 #| out-width: 100%
 ggplot(df_fit) + 
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
   geom_point(aes(x = lon, y = lat, colour = log_doc_surf), size = 0.5) +
   ggplot2::scale_colour_viridis_c(option = "A") +
-  coord_quickmap(expand = 0) +
-  facet_wrap(~season)
+  coord_quickmap(expand = 0)
 
 
-## ----exp_pca-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----exp_pca---------------------------------------------------------------------------------------------------------------------------------------------------
 #| fig-column: body-outset
 #| out-width: 100%
 # Need to remove lon and lat and to scale because units differ between variables
-df_pca <- df_fit %>% select(c(lon, lat, season, doc_surf, log_doc_surf, everything())) %>% mutate(season = as.character(season))
-pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, quali.sup = 3, scale.unit = TRUE, graph = FALSE)
+df_pca <- df_fit %>% select(c(lon, lat, doc_surf, log_doc_surf, everything()))
+pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, scale.unit = TRUE, graph = FALSE)
 
 # Plot eigenvalues
 plot_eig(pca_all)
@@ -58,28 +59,31 @@ ggmap(inds, "dim1", type = "point", palette = div_pal)
 ggmap(inds, "dim2", type = "point", palette = div_pal)
 
 
-## ----split---------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# Split by season
-df_fit_seas <- df_fit %>% group_by(season) %>% group_split()
+## ----split-----------------------------------------------------------------------------------------------------------------------------------------------------
+message("Split")
+# Transform dataframe to sf object for spatial CV.
+df_sf <- st_as_sf(df_fit, coords = c("lon", "lat"), crs = 4326)
 
-# For each season, generate a stratified nested CV
-folds <- lapply(1:length(df_fit_seas), function(i) {
-  # Get data for this season
-  df_seas <- df_fit_seas[[i]]
-  
-  set.seed(seed)
+set.seed(seed)
+# Bind together folds of both nested_cv
+folds <- bind_rows(
   # Stratified CV on deciles of response variable
-  folds <- nested_cv(
-    df_seas,
+  nested_cv(
+    df_fit,
     outside = vfold_cv(v = 10, strata = log_doc_surf, breaks = 9),
     inside = vfold_cv(v = 10, strata = log_doc_surf, breaks = 9)) %>%
-    mutate(cv_type = "stratified") %>% 
-    mutate(season = as.character(i))
-}) %>% 
-  bind_rows()
+    mutate(cv_type = "stratified"),
+  # Spatial CV
+  nested_cv(
+    df_sf,
+    outside = spatial_block_cv(v = 10),
+    inside = spatial_block_cv(v = 10)) %>%
+    mutate(cv_type = "spatial")
+)
 
 
-## ----def_mod-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----def_mod---------------------------------------------------------------------------------------------------------------------------------------------------
+message("Define model")
 # Define a xgboost model with hyperparameters to tune
 xgb_spec <- boost_tree(
   trees = tune(),
@@ -90,13 +94,23 @@ xgb_spec <- boost_tree(
   set_mode("regression") %>%
   set_engine("xgboost")
 
+## Define a lgbm model with hyperparameters to tune
+#xgb_spec <- boost_tree(
+#  trees = tune(),
+#  tree_depth = tune(),
+#  min_n = tune(),
+#  learn_rate = tune()
+#) %>%
+#  set_mode("regression") %>%
+#  set_engine("lightgbm")
 
-## ----def_form------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+## ----def_form--------------------------------------------------------------------------------------------------------------------------------------------------
 # Generate formula from list of explanatory variables
 xgb_form <- as.formula(paste("log_doc_surf ~ ", paste(c("doc_surf", exp_vars), collapse = " + "), sep = ""))
 
 
-## ----def_grid------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----def_grid--------------------------------------------------------------------------------------------------------------------------------------------------
 # Define one grid for all folds
 set.seed(seed)
 xgb_grid <- grid_latin_hypercube(
@@ -108,15 +122,12 @@ xgb_grid <- grid_latin_hypercube(
 )
 
 
-## ----gridsearch----------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----gridsearch------------------------------------------------------------------------------------------------------------------------------------------------
 message("Gridsearch")
-#|cache.lazy: false
 res <- pbmclapply(1:nrow(folds), function(i){
   
   ## Get fold
   x <- folds[i,]
-  
-  message(paste0("Processing ", x$id, " of season ", x$season))
 
   ## Train and test sets
   df_train <- analysis(x$splits[[1]]) %>% as_tibble()
@@ -171,9 +182,6 @@ res <- pbmclapply(1:nrow(folds), function(i){
     filter(variable != "_baseline_")
 
   # CP profiles for all variables
-  #selected_points <- ingredients::select_sample(df_train, n = 100, seed = seed)
-  #cp_profiles <- ingredients::ceteris_paribus(xgb_explain, selected_points) %>% as_tibble()
-  # CP profiles
   cp_profiles <- lapply(exp_vars, function(my_var){
     model_profile(explainer = xgb_explain, variables = my_var)$cp_profiles %>% as_tibble()
   }) %>%
@@ -188,7 +196,7 @@ res <- pbmclapply(1:nrow(folds), function(i){
   ## Return results
   return(tibble(
       resp = resp_var[2],
-      season = x$season,
+      season = "0",
       cv_type = x$cv_type,
       fold = x$id,
       preds = list(preds),
@@ -200,7 +208,7 @@ res <- pbmclapply(1:nrow(folds), function(i){
   bind_rows()
 
 
-## ----save----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#|cache.lazy: false
+## ----save------------------------------------------------------------------------------------------------------------------------------------------------------
+message("Save")
 save(res, file = output_filename)
 

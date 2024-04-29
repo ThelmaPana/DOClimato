@@ -19,7 +19,7 @@ execute:
 #|cache: false
 #|cache.lazy: false
 source("utils.R")
-load("data/06.doc_surf_seas_pred.Rdata")
+load("data/07.doc_surf_seas_pred.Rdata")
 ```
 
 ## Model evaluation
