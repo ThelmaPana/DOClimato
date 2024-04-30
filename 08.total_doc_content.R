@@ -18,6 +18,10 @@ res <- sapply(files, function(x) mget(load(x)), simplify = TRUE) %>%
   bind_rows() %>% 
   mutate(season = as.character(season))
 
+# Keep only seasonal and stratified
+res <- res %>% filter(season == "0" & cv_type == "stratified")
+
+
 # Nice layer names
 resp_to_layer <- tribble(
   ~resp, ~layer,
@@ -137,14 +141,22 @@ ggplot(pixels) + geom_histogram(aes(x = vol_km3, fill = layer), alpha = 0.5, bin
 #--------------------------------------------------------------------------#
 # Get predictions per fold
 doc_preds <- res %>% 
-  filter(cv_type == "stratified" & season == "0") %>% # keep only annual and stratified CV
   select(resp, fold, new_preds) %>% # keep only relevant columns
   unnest(new_preds) %>% 
   mutate(pred_doc = exp(pred_doc_log), .before = pred_doc_log) %>%  # compute doc from log(doc)
-  # Join with R² value per layer and per fold
   select(resp, fold, lon, lat, pred_doc) %>% 
   rename(layer = resp) %>% 
   mutate(layer = str_remove(layer, "doc_"))
+
+# Plot all layers for Fold01 (N.B. folds are not related across layers)
+doc_preds %>% 
+  filter(fold == "Fold01") %>% 
+  ggplot() + 
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "gray") +
+  geom_raster(aes(x = lon, y = lat, fill = pred_doc)) +
+  scale_fill_cmocean(name = "matter", direction = -1, trans = "log1p") +
+  coord_quickmap(expand = 0) +
+  facet_wrap(~layer)
 
 
 # Join with pixel volumes
@@ -160,6 +172,14 @@ tot_doc <- doc_preds %>%
   # Sum DOC content per fold
   group_by(fold, layer) %>% 
   summarise(tot_doc_Pgc = sum(tot_doc_Pgc, na.rm = TRUE), .groups = "drop")
+
+tot_doc %>% 
+  mutate(layer = factor(layer, levels = c("surf", "epi", "meso", "bathy"))) %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = layer, y = tot_doc_Pgc, group = layer, colour = layer), show.legend = FALSE) +
+  scale_colour_manual(values = c("#bdd7e7", "#6baed6", "#3182bd", "#08519c")) +
+  facet_wrap(~layer, scales = "free", nrow = 1)
+
 
 # Compute avg and sd of POC per layer
 l_tot_doc <- tot_doc %>% 

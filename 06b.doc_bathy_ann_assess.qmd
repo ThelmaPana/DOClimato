@@ -336,3 +336,32 @@ new_preds_strat %>%
   coord_quickmap(expand = 0) +
   facet_wrap(~fold)
 ```
+
+## Values in the North Pacific
+
+```{r n_pac}
+# Read data from the north pacific
+# https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-physical-labels/
+n_pac <- sf::read_sf("data/raw/ne_10m_geography_marine_polys/ne_10m_geography_marine_polys.shp") %>% 
+  filter(featurecla == "ocean") %>% 
+  filter(name == "North Pacific Ocean") %>% 
+  dplyr::select(name, geometry)
+
+
+# Convert predicted points to sf and set crs
+point.sf <- st_as_sf(strat_proj, coords = c("lon","lat"))
+st_crs(point.sf) <- st_crs(n_pac$geometry)
+
+
+# Filter points within the Pacific Ocean and extract geometry
+preds_n_pac <- st_filter(point.sf, n_pac$geometry) %>% 
+  tidyr::extract(geometry, c('lon', 'lat'), '\\((.*), (.*)\\)', convert = TRUE) 
+
+ggplot(preds_n_pac) +
+  geom_raster(aes(x = lon, y = lat, fill = doc_avg)) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims, trans = "log1p") +
+  coord_quickmap(expand = 0)
+
+summary(preds_n_pac)
+```
