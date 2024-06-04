@@ -10,9 +10,6 @@ Overall, 8 climatologies are generated:
 
 -   annual climatologies in 4  layers: surface (0 - 10 m), epipelagic (10 - 200 m), mesopelagic (200 - 1000 m) and bathypelagic (\> 1000 m)
 
-```{=html}
-<!-- -->
-```
 -   seasonal climatologies in the surface layer
 
 ## Repo organisation
