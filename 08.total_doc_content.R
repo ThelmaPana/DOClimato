@@ -7,6 +7,7 @@
 
 source("utils.R")
 
+
 ## Load data ----
 #--------------------------------------------------------------------------#
 
@@ -37,13 +38,6 @@ resp_to_layer <- tribble(
 # conversion of volume of seawater to mass?
 # constant: 1 027.7 kg m⁻³ 
 
-
-## TODO
-# - area & volume of pixels depends on depth
-# - conversion from volume to kg of seawater: constant or compute it per pixel?
-# - conversion from µmol to PgC of DOC
-# - what about pixels with no predictions?
-# overall this is an underestimate as we do not have all pixels.
 
 
 ## Prepare all Rsquares ----
@@ -119,6 +113,17 @@ df_lay <- df_lay %>%
     bathy_range = bathy_bottom - meso_bottom
   )
 
+
+df_lay %>% 
+  select(lon, lat, contains("_bottom")) %>% 
+  pivot_longer(bathy_bottom:surf_bottom) %>% 
+  ggplot() +
+  geom_tile(aes(x = lon, y = lat, fill = value)) +
+  scale_fill_cmocean(name = "deep") +
+  coord_quickmap(expand = F) +
+  facet_wrap(~name)
+
+
 # Compute pixel area and volume per layer
 pixels <- df_lay %>% 
   select(lon, lat, bottom, contains("range")) %>% 
@@ -154,7 +159,7 @@ doc_preds %>%
   ggplot() + 
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "gray") +
   geom_raster(aes(x = lon, y = lat, fill = pred_doc)) +
-  scale_fill_cmocean(name = "matter", direction = -1, trans = "log1p") +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
   coord_quickmap(expand = 0) +
   facet_wrap(~layer)
 
@@ -201,7 +206,7 @@ g_tot_doc <- tot_doc %>%
 
 g_tot_doc$tot_doc_avg
 g_tot_doc$tot_doc_sd
-#  678.63 ± 0.36 PgC
+# 678.63 ± 0.36 PgC
 
 
 ## Compute total DOC with empty pixels replaced by mean ----
@@ -259,5 +264,87 @@ g_tot_doc_fill <- tot_doc_fill %>%
 
 g_tot_doc_fill$tot_doc_avg
 g_tot_doc_fill$tot_doc_sd
-#  690.71 ± 0.36 PgC
+#  690.71 ± 0.36
 
+
+## Plot proportions ----
+#--------------------------------------------------------------------------#
+l_tot_doc %>% 
+  arrange(tot_doc_avg) %>% 
+  mutate(layer = fct_inorder(layer)) %>% 
+  ggplot() +
+  geom_col(aes(y = 0, x = tot_doc_avg, fill = layer), position = position_fill(reverse = TRUE), orientation = "y") +
+  scale_fill_manual(
+    values = c("#bdd7e7", "#6baed6", "#3182bd", "#08519c"),
+    labels = c(
+      surf = "Surf.",
+      epi = "Epi.",
+      meso = "Meso.",
+      bathy = "Bathy."
+    )) +
+  scale_x_continuous() + scale_y_continuous(expand = c(0,0)) +
+  #coord_flip() +
+  labs(x = "DOC proportion", y = "", fill = "Layer")  +
+  theme(
+    axis.text.y = element_blank(),
+    legend.position = "top",
+    panel.grid = element_blank(),
+    plot.margin = unit(c(0,0,0,-1), units = "lines")
+    )
+
+l_tot_doc %>% 
+  arrange(tot_doc_avg) %>% 
+  mutate(layer = fct_inorder(layer)) %>% 
+  ggplot() +
+  geom_bar(aes(x = 2, y = tot_doc_avg, fill = layer), stat = "identity", color = "white") +
+  coord_polar(theta = "y", start = 0) +
+  scale_fill_manual(
+    values = c("#bdd7e7", "#6baed6", "#3182bd", "#08519c"),
+    labels = c(
+      surf = "Surf.",
+      epi = "Epi.",
+      meso = "Meso.",
+      bathy = "Bathy."
+    )) +
+  labs(fill = "Layer") +
+  theme_void() +
+  xlim(0.5, 2.5)
+
+
+df_lay <- crossing(
+  x = 1:20,
+  y = 1:20,
+  layer = l_tot_doc$layer
+) %>% 
+  arrange(layer) %>% 
+  group_by(layer) %>% 
+  mutate(rank = row_number() / n()) %>% 
+  ungroup() %>% 
+  left_join(
+    l_tot_doc %>% mutate(prop_doc = tot_doc_avg / sum(tot_doc_avg)) %>% select(layer, prop_doc), 
+    by = join_by(layer)
+  ) %>% 
+  mutate(
+    fill = rank < prop_doc,
+    keep = rank < max(prop_doc)
+  ) %>% 
+  filter(keep) %>% 
+  filter(fill) %>% 
+  mutate(layer = factor(layer, levels = c("surf", "epi", "meso", "bathy")))
+
+
+df_lay %>% 
+  ggplot() +
+  geom_tile(aes(x = x, y = y, fill = layer), width = 0.90, height = 0.90, show.legend = FALSE) +
+  scale_fill_manual(
+    values = c("#bdd7e7", "#6baed6", "#3182bd", "#08519c"),
+    labels = c(
+      surf = "Surf.",
+      epi = "Epi.",
+      meso = "Meso.",
+      bathy = "Bathy."
+    )) +
+  #coord_fixed() +
+  facet_wrap(~layer, nrow = 1) +
+  theme_void() +
+  theme(aspect.ratio = 1)
