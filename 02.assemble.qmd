@@ -56,6 +56,9 @@ df_ann_surf_pred <- df_env %>%
   filter(surf_include) %>% 
   select(-surf_include)
 
+# Initial number of pixels to predict
+n_pix <- nrow(df_ann_surf_pred)
+
 # Detect pixels where less that 1/4 of predictors are missing
 sel_pix <- df_ann_surf_pred %>% 
   pivot_longer(temperature_surf:par, names_to = "variable", values_to = "value") %>% 
@@ -83,7 +86,7 @@ df_ann_surf_fit <- df_doc %>%
   mutate(log_doc_surf = log(doc_surf), .before = doc_surf)
 ```
 
-Plot map of coverage.
+Plot map of coverage, we predict `r percent(nrow(sel_pix)/n_pix)` of ocean pixels.
 
 ```{r surf_ann_cov}
 # Plot coverage of data
@@ -136,6 +139,11 @@ sel_pix <- df_seas_surf_pred %>%
   filter(percent_na < 0.10) %>% 
   select(lon, lat, season) %>% 
   mutate(use = TRUE)
+
+# Proportion of predicted pixels
+df_seas_surf_pred %>% count(season, name = "n_init") %>% 
+  left_join(sel_pix %>% count(season, name = "n_pred"), by = join_by(season)) %>% 
+  mutate(prop = n_pred / n_init)
 
 # Keep only these pixels
 df_seas_surf_pred <- df_seas_surf_pred %>% 
@@ -201,6 +209,9 @@ df_ann_epi_pred <- df_env %>%
   filter(epi_include) %>% 
   select(-epi_include)
 
+# Initial number of pixels to predict
+n_pix <- nrow(df_ann_epi_pred)
+
 # Detect pixels where less that 1/4 of predictors are missing
 sel_pix <- df_ann_epi_pred %>% 
   pivot_longer(temperature_surf:nitrate_epi, names_to = "variable", values_to = "value") %>% 
@@ -228,7 +239,7 @@ df_ann_epi_fit <- df_doc %>%
   mutate(log_doc_epi = log(doc_epi), .before = doc_epi)
 ```
 
-Plot map of coverage.
+Plot map of coverage, we predict `r percent(nrow(sel_pix)/n_pix)` of ocean pixels.
 
 ```{r epi_ann_cov}
 # Plot coverage of data
@@ -263,9 +274,12 @@ df_ann_meso_pred <- df_env %>%
   filter(meso_include) %>% 
   select(-meso_include)
 
+# Initial number of pixels to predict
+n_pix <- nrow(df_ann_meso_pred)
+
 # Detect pixels where less that 1/4 of predictors are missing
 sel_pix <- df_ann_meso_pred %>% 
-  pivot_longer(temperature_surf:nitrate_meso, names_to = "variable", values_to = "value") %>% 
+  pivot_longer(temperature_surf:nitrate_meso, names_to = "variable", values_to = "value") %>%
   group_by(lon, lat, season) %>% 
   summarise_all(list(percent_na)) %>% 
   ungroup() %>%
@@ -290,7 +304,7 @@ df_ann_meso_fit <- df_doc %>%
   mutate(log_doc_meso = log(doc_meso), .before = doc_meso)
 ```
 
-Plot map of coverage.
+Plot map of coverage, we predict `r percent(nrow(sel_pix)/n_pix)` of ocean pixels.
 
 ```{r meso_ann_cov}
 # Plot coverage of data
@@ -326,6 +340,9 @@ df_ann_bathy_pred <- df_env %>%
   filter(bathy_include) %>% 
   select(-bathy_include)
 
+# Initial number of pixels to predict
+n_pix <- nrow(df_ann_bathy_pred)
+
 # Detect pixels where less that 1/4 of predictors are missing
 sel_pix <- df_ann_bathy_pred %>% 
   pivot_longer(temperature_surf:nitrate_bathy, names_to = "variable", values_to = "value") %>% 
@@ -353,7 +370,7 @@ df_ann_bathy_fit <- df_doc %>%
   mutate(log_doc_bathy = log(doc_bathy), .before = doc_bathy)
 ```
 
-Plot map of coverage.
+Plot map of coverage, we predict `r percent(nrow(sel_pix)/n_pix)` of ocean pixels.
 
 ```{r bathy_ann_cov}
 # Plot coverage of data
