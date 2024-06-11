@@ -8,7 +8,7 @@ format:
     embed-resources: true
 editor: visual
 execute:
-  cache: true
+  cache: false
   warning: false
 ---
 

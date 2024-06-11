@@ -156,7 +156,7 @@ xgb_grid <- grid_latin_hypercube(
   learn_rate(),
   tree_depth(),
   min_n(),
-  size = 5
+  size = 30
 )
 ```
 
