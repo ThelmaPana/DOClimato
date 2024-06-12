@@ -286,7 +286,7 @@ ggmap <- function(df, var, type = c("raster", "point"), land = TRUE, palette = N
       "par",         scale_fill_cmocean(name = "solar", na.value = NA),                      scale_colour_cmocean(name = "solar", na.value = NA),
       "mld",         scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "mld_argo",    scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
-      "thermo",       scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
+      "thermo",      scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "pycno",       scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "z_eu",        scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),
       "s_cline",     scale_fill_cmocean(name = "deep", na.value = NA),                       scale_colour_cmocean(name = "deep", na.value = NA),

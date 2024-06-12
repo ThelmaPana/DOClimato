@@ -293,7 +293,6 @@ doc_sd_lims <- c(
   min(c(strat_proj$doc_sd)), 
   max(c(strat_proj$doc_sd))  
 )
-
 ```
 
 ### Maps
@@ -358,9 +357,10 @@ preds_n_pac <- st_filter(point.sf, n_pac$geometry) %>%
   tidyr::extract(geometry, c('lon', 'lat'), '\\((.*), (.*)\\)', convert = TRUE) 
 
 ggplot(preds_n_pac) +
-  geom_raster(aes(x = lon, y = lat, fill = doc_avg)) +
+  geom_tile(aes(x = lon, y = lat, colour = doc_avg, fill = doc_avg)) +
   geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
-  ggplot2::scale_fill_viridis_c(option = "F", limits = doc_avg_lims, trans = "log1p") +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
   coord_quickmap(expand = 0)
 
 summary(preds_n_pac)
