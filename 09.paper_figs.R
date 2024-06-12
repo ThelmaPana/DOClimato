@@ -43,6 +43,48 @@ p_theme <- theme(
   legend.key.width = unit(0.3, "cm")
 ) 
 
+# World map centered on Pacific
+# work around for polygons crossing the 0 latitude
+polygon <- st_polygon(x = list(rbind(
+  c(-0.0001, 90),
+  c(0, 90),
+  c(0, -90),
+  c(-0.0001, -90),
+  c(-0.0001, 90)
+))) %>%
+  st_sfc() %>%
+  st_set_crs(4326)
+
+# perform transformation on modified version of world dataset
+world_rob <- st_transform(world_sf %>% st_difference(polygon), crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs')
+
+# Graticules
+grat <- list(
+  st_sf(geometry = st_sfc(
+    st_multilinestring(x = lapply(c(0, 60, 120, 180, 240, 300, 359.9), 
+                                  function(x) cbind(x, seq(-90, 90, 1)))), crs = 'WGS84')),
+  st_sf(geometry = st_sfc(
+    st_multilinestring(x = lapply(c(-90, -60, -30, 0, 30, 60, 90), function(x) {
+      cbind(seq(0, 360, 1), x)
+    })), crs = 'WGS84'))) %>% 
+  bind_rows() %>% 
+  st_transform(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs')
+
+## Axis labels
+#ylabs <- lapply(c(-90, -60, -30, 0, 30, 60, 90), function(x) {
+#  st_sf(label = paste0(abs(x), '\u00b0', 
+#                       ifelse(x == 0, '', ifelse(x < 0, 'S', 'N'))),
+#        geometry = st_sfc(st_point(c(0, x)), crs = 'WGS84'))
+#}) %>% 
+#  bind_rows() %>% 
+#  st_transform(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs')
+#xlabs <- lapply(c(0, 60, 120, 180, 240, 300, 359.9), function(x) {
+#  st_sf(label = paste0(round(x), '\u00b0', 'E'),
+#        geometry = st_sfc(st_point(c(x, 90)), crs = 'WGS84'))
+#}) %>% 
+#  bind_rows() %>% 
+#  st_transform(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs')
+
 
 ## Prepare all Rsquares ----
 #--------------------------------------------------------------------------#
@@ -81,7 +123,6 @@ rsquares %>%
   )
 
 
-
 ## 1: Surface climatology ----
 #--------------------------------------------------------------------------#
 # Surface climatology:
@@ -103,8 +144,6 @@ p1_theme <- theme(
   text = element_text(size = 8)
   )
 
-
-
 ## a + b
 # Get projections, average and sd by pixel
 df_1ab <- res %>% 
@@ -125,26 +164,30 @@ df_1ab <- res %>%
 # Get surface climatology with nice names
 surf_clim <- df_1ab %>% rename(surf_doc_avg = doc_avg, surf_doc_sd = doc_sd)
 
+
 # Plot a
-p1a <- ggplot(df_1ab)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+# Colour bar limit
+doc_lims <- c(min(df_1ab$doc_avg), 200)
+p1a <- ggplot(df_1ab %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_lims) +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_lims) +
+  coord_sf(datum = NA, default_crs = sf::st_crs(4326)) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p1_theme
 
 # Plot b
-p1b <- ggplot(df_1ab)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+p1b <- ggplot(df_1ab  %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", breaks = c(1, 5, 10, 20, 30)) +
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
   p1_theme 
-
 
 ## c
 # Seasonal surface climatology
@@ -177,20 +220,18 @@ df_1c <- seas_clim %>%
     .groups = "drop"
   )
 
-
-p1c <- ggplot(df_1c)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+p1c <- ggplot(df_1c %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = seas_amp, colour = seas_amp)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(trans = "log1p", breaks = c(1, 5, 10, 20, 30)) +
   ggplot2::scale_colour_viridis_c(trans = "log1p", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Seasonal amplitude (μmol kg<sup>-1</sup>)") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Seasonal amplitude (μmol kg<sup>-1</sup>)") +
   p1_theme 
-
 
 ## Assemble
 p1 <- p1a / p1b / p1c + plot_layout(axis_titles = "collect") + plot_annotation(tag_levels = "a")
-p1
 
 # Save
 ggsave(file = "figures/figure_1.png", plot = p1, width = 110, height = 188, unit = "mm", bg = "white")
@@ -203,25 +244,11 @@ ggsave(file = "figures/figure_1.png", plot = p1, width = 110, height = 188, unit
 # b - meso climatology
 # c - bathy climatology
 
-#p2_theme <- theme(
-#  axis.title = element_blank(),
-#  legend.position = "bottom",
-#  legend.title = element_markdown(size = 10),
-#  legend.key.width = unit(1.2, "cm"),
-#  legend.key.height = unit(2, "mm"),
-#  legend.direction = "horizontal",
-#  legend.title.position = "top",
-#  legend.margin = margin(0, 0, 0, 0),
-#  legend.box.margin = margin(-10, -10, 0, -10),
-#  plot.margin = unit(c(0, 0, 0, 0), "mm"),
-#  text = element_text(size = 8)
-#)
-
 p2_theme <- theme(
   axis.title = element_blank(),
   legend.position = "bottom",
   legend.title = element_markdown(size = 10),
-  legend.key.width = unit(1.5, "cm"),
+  legend.key.width = unit(1.2, "cm"),
   legend.key.height = unit(2, "mm"),
   legend.direction = "horizontal",
   legend.title.position = "top",
@@ -288,45 +315,42 @@ df_2c <- res %>%
 # Get bathypelagic climatology with nice names
 bathy_clim <- df_2c %>% rename(bathy_doc_avg = doc_avg, bathy_doc_sd = doc_sd)
 
-# Get common colourbar limits for meso and bathy
-doc_avg_lims <- c(
-  min(df_2a$doc_avg, df_2b$doc_avg, df_2c$doc_avg), 
-  max(df_2a$doc_avg, df_2b$doc_avg, df_2c$doc_avg)  
-)
-
-
 # Plot a
-p2a <- ggplot(df_2a)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+p2a <- ggplot(df_2a %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
 # Plot b
-p2b <- ggplot(df_2b)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+p2b <- ggplot(df_2b %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
 # Plot c
-p2c <- ggplot(df_2c)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+p2c <- ggplot(df_2c %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
+
 ## Assemble
-p2 <- p2a / p2b / p2c + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
+p2 <- p2a / p2b / p2c + plot_layout(axis_titles = "collect") + plot_annotation(tag_levels = "a")
 p2
 
 ## Save
@@ -346,7 +370,6 @@ full_vip <- res %>%
   group_by(cv_type, resp, season, fold, variable) %>%
   summarise(dropout_loss = mean(dropout_loss), .groups = "drop")
 
-## 1st version with patchwork
 # Surface
 vip_surf_ann <- full_vip %>% 
   filter(variable != "_full_model_") %>%
@@ -360,20 +383,6 @@ vip_surf_ann <- full_vip %>%
     variable = forcats::fct_other(variable, keep = tail(levels(variable), n = 5), other_level = "other"),
     variable = forcats::fct_reorder(variable, mean_dl)
   )
- # group_by(variable) %>% 
- # mutate(mean_dl = mean(dropout_loss)) %>% 
- # ungroup() %>% 
- # mutate() %>% 
- # group_by(variable) %>% 
- # mutate(
- #   resp_order = 1,
- #   var_order = cur_group_id()
- #   )
-
-vip_surf_ann %>% 
-  ggplot() + 
-  geom_boxplot(aes(x = dropout_loss, y = variable)) +
-  geom_point(aes(x = mean_dl, y = variable), colour = "red")
 
 # Epi
 vip_epi_ann <- full_vip %>% 
@@ -389,7 +398,6 @@ vip_epi_ann <- full_vip %>%
     variable = forcats::fct_reorder(variable, mean_dl)
   ) 
 
-
 # Meso
 vip_meso_ann <- full_vip %>% 
   filter(variable != "_full_model_") %>%
@@ -403,7 +411,6 @@ vip_meso_ann <- full_vip %>%
     variable = forcats::fct_other(variable, keep = tail(levels(variable), n = 5), other_level = "other"),
     variable = forcats::fct_reorder(variable, mean_dl)
   ) 
-
 
 # Bathy
 vip_bathy_ann <- full_vip %>% 
@@ -419,14 +426,12 @@ vip_bathy_ann <- full_vip %>%
     variable = forcats::fct_reorder(variable, mean_dl)
   )
 
-
 ## Drop-out loss for full model
 full_model_vip <- full_vip %>% 
   filter(variable == "_full_model_") %>% 
   mutate(resp = factor(resp, levels = c("doc_surf", "doc_epi", "doc_meso", "doc_bathy"))) %>% 
   group_by(resp) %>% 
   summarise(dropout_loss = mean(dropout_loss))
-
 
 # Assemble layers
 df_3 <- vip_surf_ann %>% 
@@ -482,7 +487,6 @@ p3 <- ggplot(df_3) +
     legend.background = element_rect(fill = "white", colour = NA),
     text = element_text(size = 8)
   )
-
 p3
 
 ## Save
@@ -522,37 +526,36 @@ ps1_theme <- theme(
   text = element_text(size = 8)
 )
 
-
 # Surface
-ps1a <- ggplot(df_ann_surf_fit)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps1a <- ggplot(df_ann_surf_fit) +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   ps1_theme
 
 # Epi
-ps1b <- ggplot(df_ann_epi_fit)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps1b <- ggplot(df_ann_epi_fit) +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   ps1_theme
 
 # Meso
-ps1c <- ggplot(df_ann_meso_fit)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps1c <- ggplot(df_ann_meso_fit) +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   ps1_theme
 
 # Bathy
-ps1d <- ggplot(df_ann_bathy_fit)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps1d <- ggplot(df_ann_bathy_fit) +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   ps1_theme
 
 ps1 <- ps1a + ps1b + ps1c + ps1c + plot_layout(ncol = 2, guides = "collect") + plot_annotation(tag_levels = "a")
@@ -569,52 +572,50 @@ load("data/02.seas_surf.Rdata")
 # Count of observations
 df_seas_surf_fit %>% count(season)
 
-
 ps2_theme <- theme(
   axis.title = element_blank(),
   text = element_text(size = 8)
 )
 
-
 # Winter
 ps2a <- df_seas_surf_fit %>% 
   filter(season == 1) %>% 
-  ggplot()  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+  ggplot() +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   ps2_theme
 
 # Spring
 ps2b <- df_seas_surf_fit %>% 
   filter(season == 2) %>% 
-  ggplot()  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+  ggplot() +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
-  ps2_theme
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  ps1_theme
 
 # Summer
 ps2c <- df_seas_surf_fit %>% 
   filter(season == 3) %>% 
-  ggplot()  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+  ggplot() +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
-  ps2_theme
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  ps1_theme
 
 # Autumn
 ps2d <- df_seas_surf_fit %>% 
   filter(season == 4) %>% 
-  ggplot()  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+  ggplot() +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_point(aes(x = lon, y = lat), size = 0.05, alpha = 0.3) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude") +
-  ps2_theme
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  ps1_theme
 
 ps2 <- ps2a + ps2b + ps2c + ps2c + plot_layout(ncol = 2, guides = "collect") + plot_annotation(tag_levels = "a")
 ps2
@@ -652,7 +653,6 @@ pred_surf <- bind_rows(
 ps3a <- ggplot(pred_surf) + 
   geom_density(aes(x = value, linetype = type), linewidth = 0.3) +
   labs(x = "Value", y = "Density", linetype = "Data type") +
-  #scale_colour_manual(values = c("grey30", "black")) +
   ps3_facet +
   ps3_theme
 
@@ -789,9 +789,8 @@ ps5_theme <- theme(
   text = element_text(size = 8)
 )
 
-
 # Get projections, average and sd by pixel for stratified
-df_4sa <- res %>% 
+df_5sa <- res %>% 
   filter(resp == "doc_surf" & season == "0") %>% 
   filter(cv_type == "stratified") %>% 
   select(fold, new_preds) %>% 
@@ -807,7 +806,7 @@ df_4sa <- res %>%
   )
 
 # Get projections, average and sd by pixel for spatial
-df_4sb <- res %>% 
+df_5sb <- res %>% 
   filter(resp == "doc_surf" & season == "0") %>% 
   filter(cv_type == "spatial") %>% 
   select(fold, new_preds) %>% 
@@ -823,21 +822,21 @@ df_4sb <- res %>%
   )
 
 # Compute difference between stratified and spatial
-df_4s <- df_4sa %>% 
+df_5s <- df_5sa %>% 
   rename(strat = doc_avg) %>% 
-  left_join(df_4sb %>% rename(spat = doc_avg), by = join_by(lon, lat)) %>% 
+  left_join(df_5sb %>% rename(spat = doc_avg), by = join_by(lon, lat)) %>% 
   mutate(diff = strat - spat)
 
-ps5 <- ggplot(df_4s)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+# Plot it
+ps5 <- ggplot(df_5s %>% filter(lon != -0.5)) +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = diff, colour = diff)) + 
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   scale_fill_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027") +
   scale_colour_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Difference between projection from stratified CV and spatial CV (μmol kg<sup>-1</sup>)") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Difference between projection from stratified CV and spatial CV (μmol kg<sup>-1</sup>)") +
   ps5_theme
-
-ps5
 
 # Save
 ggsave(file = "figures/figure_s5.png", plot = ps5, width = 180, height = 90, unit = "mm", bg = "white")
@@ -877,40 +876,44 @@ df_s6 <- res %>%
 
 doc_avg_lims <- c(min(df_s6$doc_avg), max(df_s6$doc_avg))
 
-ps6a <- ggplot(df_s6 %>% filter(season == 1)) + 
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps6a <- ggplot(df_s6 %>% filter(season == 1) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", na.value = NA, limits = doc_avg_lims) +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", na.value = NA, limits = doc_avg_lims) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   ps6_theme
 
-ps6b <- ggplot(df_s6 %>% filter(season == 2)) + 
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps6b <- ggplot(df_s6 %>% filter(season == 2) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", na.value = NA, limits = doc_avg_lims) +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", na.value = NA, limits = doc_avg_lims) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   ps6_theme
 
-ps6c <- ggplot(df_s6 %>% filter(season == 3)) + 
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps6c <- ggplot(df_s6 %>% filter(season == 3) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", na.value = NA, limits = doc_avg_lims) +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", na.value = NA, limits = doc_avg_lims) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   ps6_theme
 
-ps6d <- ggplot(df_s6 %>% filter(season == 4)) + 
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps6d <- ggplot(df_s6 %>% filter(season == 4) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", na.value = NA, limits = doc_avg_lims) +
-  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", na.value = NA, limits = doc_avg_lims) +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
+  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   ps6_theme
 
 ps6 <- ps6a + ps6b + ps6c + ps6d + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = 'bottom')
@@ -928,7 +931,6 @@ ggsave(file = "figures/figure_s6.png", plot = ps6, width = 180, height = 120, un
 
 ps7_theme <- p2_theme
 
-
 # Get common colourbar limits for meso and bathy
 doc_sd_lims <- c(
   min(df_2a$doc_sd, df_2b$doc_sd, df_2c$doc_sd), 
@@ -936,36 +938,37 @@ doc_sd_lims <- c(
 )
 
 # Plot a
-ps7a <- ggplot(df_2a)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps7a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
   ps7_theme
 
+# Plot b
+ps7b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
+  geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  ps7_theme
 
 # Plot c
-ps7b <- ggplot(df_2b)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+ps7c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  p2_theme
-
-
-# Plot e
-ps7c <- ggplot(df_2c)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
-  geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
-  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
-  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
-  labs(x = "Longitude", y = "Latitude", fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  p2_theme
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  ps7_theme
 
 ## Assemble
 ps7 <- ps7a / ps7b / ps7c + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
@@ -1117,72 +1120,49 @@ ggsave(file = "figures/figure_s8.png", plot = ps8, width = 188, height = 200, un
 
 ## Presentation figure: all 4 layers together ----
 #--------------------------------------------------------------------------#
-
-# Get common colourbar limits for all layers
-doc_avg_lims <- c(
-  min(df_1ab$doc_avg, df_2a$doc_avg, df_2b$doc_avg, df_2c$doc_avg), 
-  max(df_1ab$doc_avg, df_2a$doc_avg, df_2b$doc_avg, df_2c$doc_avg)  
-)
-
-
-#pfa <- ggplot(df_1ab) + 
-#  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
-#  geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) + 
-#  ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
-#  ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
-#  labs(x = "Longitude", y = "Latitude", fill = "Pred. DOC<br>(μmol kg<sup>-1</sup>)") +
-#  coord_map(projection = "mollweide") +
-#  p_theme
-
 # Plot a
-pfa <- ggplot(df_1ab)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+pfa <- ggplot(df_1ab %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  #ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
-  #ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
-
 # Plot b
-pfb <- ggplot(df_2a)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+pfb <- ggplot(df_2a %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  #ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
-  #ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
 # Plot c
-pfc <- ggplot(df_2b)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+pfc <- ggplot(df_2b %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  #ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
-  #ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
 # Plot d
-pfd <- ggplot(df_2c)  +
-  geom_sf(data = world_sf, fill = "gray80", colour = NA) +
+pfd <- ggplot(df_2c %>% filter(lon != -0.5))  +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
-  #ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p", limits = doc_avg_lims) +
-  #ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
   ggplot2::scale_fill_viridis_c(option = "F", trans = "log1p") +
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none") +
-  coord_sf(crs = "+proj=moll +lat_0=20 +lon_0=0", default_crs = 4326) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(x = "Longitude", y = "Latitude", fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
-#pf <- (pfa + pfb) / (pfc + pfd) + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
 pf <- (pfa + pfb) / (pfc + pfd) + plot_layout(axis_titles = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
 pf
