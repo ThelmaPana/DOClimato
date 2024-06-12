@@ -617,7 +617,7 @@ ps2d <- df_seas_surf_fit %>%
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   ps1_theme
 
-ps2 <- ps2a + ps2b + ps2c + ps2c + plot_layout(ncol = 2, guides = "collect") + plot_annotation(tag_levels = "a")
+ps2 <- ps2a + ps2b + ps2c + ps2d + plot_layout(ncol = 2, guides = "collect") + plot_annotation(tag_levels = "a")
 ps2
 
 ## Save
