@@ -558,7 +558,7 @@ ps1d <- ggplot(df_ann_bathy_fit) +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   ps1_theme
 
-ps1 <- ps1a + ps1b + ps1c + ps1c + plot_layout(ncol = 2, guides = "collect") + plot_annotation(tag_levels = "a")
+ps1 <- ps1a + ps1b + ps1c + ps1d + plot_layout(ncol = 2, guides = "collect") + plot_annotation(tag_levels = "a")
 ps1
 
 ## Save
