@@ -37,9 +37,10 @@ load("data/01.doc_data.Rdata")
 # Load layer inclusion
 load("data/00.bathymetry_inc.Rdata")
 
+# Drop DOC sd
 # Clean names data: replace . by _
 df_env <- df_env %>% rename_all(~ sub("\\.", "_", .x))
-df_doc <- df_doc %>% rename_all(~ sub("\\.", "_", .x))
+df_doc <- df_doc %>% select(-contains("sd")) %>% rename_all(~ sub("\\.", "_", .x))
 ```
 
 ## Join
@@ -80,7 +81,7 @@ df_ann_surf_pred <- df_ann_surf_pred %>%
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_ann_surf_fit <- df_doc %>% 
   filter(season == 0) %>% 
-  select(-contains(c("epi", "meso", "bathy"))) %>% 
+  select(lon, lat, season, doc_surf = surf_mean) %>% 
   left_join(df_ann_surf_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_surf = log(doc_surf), .before = doc_surf)
@@ -155,7 +156,7 @@ df_seas_surf_pred <- df_seas_surf_pred %>%
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_seas_surf_fit <- df_doc %>% 
   filter(season != 0) %>% 
-  select(-contains(c("epi", "meso", "bathy"))) %>% 
+  select(lon, lat, season, doc_surf = surf_mean) %>% 
   left_join(df_seas_surf_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_surf = log(doc_surf), .before = doc_surf)
@@ -233,7 +234,7 @@ df_ann_epi_pred <- df_ann_epi_pred %>%
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_ann_epi_fit <- df_doc %>% 
   filter(season == 0) %>% 
-  select(-contains(c("surf", "meso", "bathy"))) %>% 
+  select(lon, lat, season, doc_epi = epi_mean) %>% 
   left_join(df_ann_epi_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_epi = log(doc_epi), .before = doc_epi)
@@ -298,7 +299,7 @@ df_ann_meso_pred <- df_ann_meso_pred %>%
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_ann_meso_fit <- df_doc %>% 
   filter(season == 0) %>% 
-  select(-contains(c("surf", "epi", "bathy"))) %>% 
+  select(lon, lat, season, doc_meso = meso_mean) %>% 
   left_join(df_ann_meso_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_meso = log(doc_meso), .before = doc_meso)
@@ -364,7 +365,7 @@ df_ann_bathy_pred <- df_ann_bathy_pred %>%
 # Join env data with doc data, drop missing observations, apply log transformation to doc value
 df_ann_bathy_fit <- df_doc %>% 
   filter(season == 0) %>% 
-  select(-contains(c("surf", "epi", "meso"))) %>% 
+  select(lon, lat, season, doc_bathy = bathy_mean) %>% 
   left_join(df_ann_bathy_pred, by = join_by(lon, lat, season)) %>% 
   drop_na() %>% 
   mutate(log_doc_bathy = log(doc_bathy), .before = doc_bathy)
@@ -454,10 +455,6 @@ Let’s replot DOC distributions.
 ggplot(df_ann_surf_fit) + geom_histogram(aes(x = log_doc_surf), bins = 100) + ggtitle("Surface annual")
 ggplot(df_seas_surf_fit) + geom_histogram(aes(x = log_doc_surf), bins = 100) + facet_wrap(~season) + ggtitle("Surface seasonal")
 ```
-
-::: callout-important
-Not perfect, but not too bad for now. Will likely require more filtering.
-:::
 
 ## Save everything
 

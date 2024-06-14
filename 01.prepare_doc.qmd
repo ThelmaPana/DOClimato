@@ -7,6 +7,7 @@ format:
     toc: true
     embed-resources: true
 editor: visual
+lightbox: true
 execute:
   cache: true
   warning: false
@@ -23,20 +24,23 @@ source("utils.R")
 
 ```{r read_doc}
 #|warning: false
-# Read a first time to get column names
-columns <- read_excel(
-    "data/raw/0227166/4.4/data/0-data/All_Basins_Data_Merged_Hansell_2022.xlsx", 
-    n_max = 0
-  ) %>% 
-  colnames() %>% 
-  tolower()
+# Read column names and types
+# NB: file generated based on what we want to read in the dataset, this is much faster than reading the whole dataset and then selecting columns
+columns <- read_delim(
+  "data/raw/0227166/columns.txt", 
+  delim = "\t", 
+  escape_double = FALSE, 
+  trim_ws = TRUE,
+  show_col_types = FALSE
+)
 
-# Read a second time to get the data with the proper column names
-df_doc_raw <- read_excel(
+# Read with appropriate column names and types
+suppressWarnings(df_doc_raw <- read_excel(
     "data/raw/0227166/4.4/data/0-data/All_Basins_Data_Merged_Hansell_2022.xlsx",
     skip = 2, 
-    col_names = columns
-  )
+    col_names = columns$name,
+    col_types = columns$type
+  ))
 
 # Select useful columns
 df_doc <- df_doc_raw %>%
@@ -51,12 +55,6 @@ df_doc <- df_doc_raw %>%
 ## Clean
 
 Remove aberrant doc observations (flag = 9, negative values…).
-
-::: callout-warning
-## TODO
-
-What values are ok for flags? Should we remove bottles that are `-999`?
-:::
 
 ```{r clean_doc}
 df_doc <- df_doc %>%
@@ -81,7 +79,6 @@ Let’s fix this.
 ```{r clean_date}
 df_doc <- df_doc %>% 
   mutate(
-    date = as.character(date),  # convert date to character to split it
     # Fix for Tracers 2013
     date = ifelse( # if only 7 characters in date, one character is missing, add a 0 before the last character
       nchar(date == 7),
@@ -92,6 +89,23 @@ df_doc <- df_doc %>%
     date = str_replace(date, "00$", "01"),
     date = ymd(date) # format date
   )
+```
+
+## Log-transformation
+
+Plot distribution of DOC  data.
+
+```{r plot_dist}
+ggplot(df_doc) + geom_density(aes(x = doc))
+```
+
+DOC has a long tail distribution. Let’s apply a log transformation and reformat data.
+
+```{r log_transform}
+df_doc <- df_doc %>% 
+  mutate(log_doc = log10(doc), .after = doc) %>% 
+  pivot_longer(doc:log_doc, names_to = "type", values_to = "doc") %>% 
+  mutate(type = ifelse(type == "doc", "orig", "log"))
 ```
 
 ## Assign observations to layers
@@ -128,7 +142,7 @@ df_doc_ann <- df_doc %>%
     lon = roundp(lon, precision = 1, f = floor) + 0.5,
     lat = roundp(lat, precision = 1, f = floor) + 0.5
   ) %>%
-  group_by(lon, lat, layer) %>%
+  group_by(lon, lat, layer, type) %>%
   summarise(
     # compute mean and sd
     doc_mean = mean(doc),
@@ -143,18 +157,36 @@ Let’s plot some maps.
 ```{r ann_doc_maps}
 #| fig-column: body-outset
 #| out-width: 100%
+#| fig-width: 10
+#| fig-height: 5
+
 # Number of observations
-ggmap(df_doc_ann, "n_obs", type = "point", palette = ggplot2::scale_colour_viridis_c(option = "cividis", trans = "log10", direction = -1)) +
+ggmap(
+  df_doc_ann %>% filter(type == "orig"), 
+  "n_obs", 
+  type = "point", 
+  palette = ggplot2::scale_colour_viridis_c(trans = "log1p", direction = -1)
+) +
   ggtitle("Number of observations") +
   facet_wrap(~layer, ncol = 2)
 
 # DOC mean
-ggmap(df_doc_ann, "doc_mean", type = "point", palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10")) + 
+ggmap(
+  df_doc_ann %>% filter(type == "orig"), 
+  "doc_mean", 
+  type = "point", 
+  palette = ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p")
+) + 
   ggtitle("DOC mean") +
   facet_wrap(~layer, ncol = 2)
 
 # DOC sd
-ggmap(df_doc_ann, "doc_sd", type = "point", palette = ggplot2::scale_colour_viridis_c()) + 
+ggmap(
+  df_doc_ann %>% filter(type == "orig"), 
+  "doc_sd", 
+  type = "point", 
+  palette = ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", na.value = NA)
+) + 
   ggtitle("DOC sd") +
   facet_wrap(~layer, ncol = 2)
 ```
@@ -162,10 +194,12 @@ ggmap(df_doc_ann, "doc_sd", type = "point", palette = ggplot2::scale_colour_viri
 Store layered doc in multiple columns, in a similar fashion as for env data, and add season.
 
 ```{r ann_doc_cal}
-df_doc_ann <- df_doc_ann %>% 
-  select(lon, lat, layer, doc = doc_mean) %>% 
-  mutate(layer = paste0("doc.", layer)) %>% 
-  pivot_wider(names_from = layer, values_from = doc) %>% 
+df_doc_ann_orig <- df_doc_ann %>% 
+  filter(type == "orig") %>% 
+  select(lon, lat, layer, mean = doc_mean, sd = doc_sd) %>% 
+  pivot_longer(mean:sd) %>% 
+  unite("layer", layer:name) %>% 
+  pivot_wider(names_from = "layer", values_from = "value") %>% 
   mutate(season = 0, .after = lat)
 ```
 
@@ -191,10 +225,11 @@ df_doc_s <- df_doc %>%
     lon = roundp(lon, precision = 1, f = floor) + 0.5,
     lat = roundp(lat, precision = 1, f = floor) + 0.5
   ) %>%
-  group_by(lon, lat, season) %>%
+  group_by(lon, lat, season, type) %>%
   summarise(
     # compute mean and sd
-    doc.surf = mean(doc),
+    surf_mean = mean(doc),
+    surf_sd = sd(doc),
     .groups = "drop"
   ) 
 
@@ -205,11 +240,16 @@ ggplot(df_doc_s) + geom_bar(aes(x = season)) + scale_x_continuous(n.breaks = 3, 
 And plot seasonal maps.
 
 ```{r s_doc_maps}
-#| fig-column: screen-inset
+#| fig-column: body-outset
 #| out-width: 100%
 #| fig-width: 10
 #| fig-height: 5
-ggmap(df_doc_s, "doc.surf", type = "point", palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log10")) + 
+ggmap(
+  df_doc_s %>% filter(type == "orig"), 
+  "surf_mean", 
+  type = "point", 
+  palette = ggplot2::scale_colour_viridis_c(option = "A", trans = "log1p")
+) + 
   facet_wrap(~season) +
   ggtitle("DOC mean by season")
 ```
@@ -220,19 +260,58 @@ Few observations during winter at high latitudes. Will see what we can do.
 
 ```{r save}
 # Join annual and seasonnal observations together
-df_doc <- bind_rows(df_doc_ann, df_doc_s)
+df_doc <- bind_rows(
+  df_doc_ann_orig, 
+  df_doc_s %>% filter(type == "orig") %>% select(-type)
+) %>% 
+  # and reorder columns
+  select(
+    lon, lat, season, 
+    contains("surf"), 
+    contains("epi"), 
+    contains("meso"), 
+    contains("bathy")
+  )
 
 ### Some sanity checks
 ## seasonal data is only in surf #ok
-#df_doc %>% filter(season != 0) %>% select(-contains(c("meso", "bathy"))) %>% summary()
-#df_doc %>% filter(season != 0) %>% select(contains(c("meso", "bathy"))) %>% summary()
-#
-## annual data is in all 3 layers
-#df_doc %>% filter(season == 0) %>% summary()
-#
-## All ok!
+df_doc %>% filter(season != 0) %>% select(-contains(c("epi", "meso", "bathy"))) %>% summary()
+df_doc %>% filter(season != 0) %>% select(contains(c("epi", "meso", "bathy"))) %>% summary()
 
+# annual data is in all 4 layers
+df_doc %>% filter(season == 0) %>% summary()
+
+## All ok!
 
 # Save
 save(df_doc, file = "data/01.doc_data.Rdata")
+```
+
+## Log-transformed data
+
+Let’s also save mean and sd of log_transformed data for future use.
+
+```{r log_doc}
+df_doc_ann_log <- df_doc_ann %>% 
+  filter(type == "log") %>% 
+  select(lon, lat, layer, mean = doc_mean, sd = doc_sd) %>% 
+  pivot_longer(mean:sd) %>% 
+  unite("layer", layer:name) %>% 
+  pivot_wider(names_from = "layer", values_from = "value") %>% 
+  mutate(season = 0, .after = lat)
+
+df_doc_log <- bind_rows(
+  df_doc_ann_log, 
+  df_doc_s %>% filter(type == "log") %>% select(-type)
+) %>% 
+  # and reorder columns
+  select(
+    lon, lat, season, 
+    contains("surf"), 
+    contains("epi"), 
+    contains("meso"), 
+    contains("bathy")
+  )
+
+save(df_doc_log, file = "data/01.doc_log_data.Rdata")
 ```
