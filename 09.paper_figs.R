@@ -86,41 +86,20 @@ grat <- list(
 #  st_transform(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +units=m +no_defs')
 
 
-## Prepare all Rsquares ----
+## Prepare all Rsquares and RMSE ----
 #--------------------------------------------------------------------------#
-# Rsquares
+# Compute Rsquares and RMSE
 rsquares <- res %>% 
   select(resp, season, cv_type, fold, preds) %>% 
   unnest(preds) %>% 
+  pivot_longer(log_doc_surf:log_doc_bathy, names_to = "layer", values_to = "truth") %>% 
+  drop_na(truth) %>% 
+  select(-layer) %>% 
   group_by(resp, season, cv_type, fold) %>% 
-  mutate(truth = ifelse(
-    !is.na(log_doc_surf), 
-    log_doc_surf, 
-    ifelse(
-      !is.na(log_doc_epi),
-      log_doc_epi,
-      ifelse(
-        !is.na(log_doc_meso),
-        log_doc_meso,
-        log_doc_bathy
-      )
-    )
-  )) %>% 
-  select(-contains("log_doc")) %>% 
-  rsq(truth = truth, estimate = .pred) %>% 
-  rename(rsq = .estimate)
-
-
-# Nice table of rsquares
-rsquares %>% 
-  filter(season == "0") %>% 
-  filter(cv_type == "stratified") %>% 
-  #filter(cv_type == "spatial") %>% 
-  group_by(resp) %>% 
   summarise(
-    mean = mean(rsq),
-    sd = sd(rsq)
-  )
+    rsq = rsq_vec(truth, .pred),
+    rmse = rmse_vec(truth, .pred)
+    )
 
 
 ## 1: Surface climatology ----
@@ -445,19 +424,22 @@ df_3 <- vip_surf_ann %>%
     variable = str_replace_all(variable, "_", " "),
     variable = str_to_sentence(variable),
     variable = str_replace_all(variable, "Mld", "MLD"),
-    variable = str_replace_all(variable, "Bbp", "BBP"),
+    variable = str_replace_all(variable, "Bbp", "b<sub>bp</sub>"),
     variable = str_replace_all(variable, "Fmicro", "F micro"),
     variable = str_replace_all(variable, "surf", "surf."),
     variable = str_replace_all(variable, "epi", "epi."),
     variable = str_replace_all(variable, "meso", "meso."),
     variable = str_replace_all(variable, "bathy", "bathy."),
-    variable = str_replace_all(variable, "Log chl", "Log chl"),
+    variable = str_replace_all(variable, "Log chl", "log chl a"),
     variable = str_replace_all(variable, "Aou", "AOU")
   ) %>% 
   # Generate interaction between layers and variables to order variables in each layer
   mutate(variable_full = paste0(variable, "-" ,resp)) %>% 
   arrange(mean_dl) %>% 
   mutate(variable_full = fct_inorder(variable_full))
+
+#($\log([\mathrm{chl}_a])$)
+
 
 # Extract labels for y axis
 df_3_names <- df_3 %>% 
@@ -478,13 +460,14 @@ p3 <- ggplot(df_3) +
       doc_bathy = "Bathy."
     )) +
   expand_limits(x = 0) +
-  labs(x = "Dropout loss", y = "Variable", colour = "Layer") +
+  labs(x = "RMSE", y = "Variable", colour = "Layer") +
   facet_wrap(~resp, ncol = 1, scales = "free_y") +
   scale_y_discrete(labels = function(x) str_replace_all(x, labeller)) +
   theme(
     strip.background = element_blank(), strip.text.x = element_blank(), # empty facets
     legend.position = "inside", legend.position.inside = c(0.75, 0.4), # legend position
     legend.background = element_rect(fill = "white", colour = NA),
+    axis.text.y = element_markdown(),
     text = element_text(size = 8)
   )
 p3
@@ -624,9 +607,9 @@ ps2
 ggsave(file = "figures/figure_s2.png", plot = ps2, width = 180, height = 110, unit = "mm", bg = "white")
 
 
- ## S3: Distribution of predictors ----
+ ## S3: Distribution of predictors for annual predictions ----
 #--------------------------------------------------------------------------#
-# Distribution of predictors in the learning set VS in new data
+# Distribution of predictors in the learning set VS in new data for annual prediction
 
 ps3_theme <- theme(
   axis.text.x = element_text(angle = 45, hjust = 1),
@@ -639,14 +622,13 @@ ps3_theme <- theme(
   text = element_text(size = 8),
   strip.text.x = element_text(vjust = 5), 
   panel.spacing = unit(0, "lines")
-  
 )
 
 ps3_facet <- facet_wrap(~variable, scales = "free", ncol = 5, strip.position = "bottom")
 
 # Surface
 pred_surf <- bind_rows(
-  df_ann_surf_fit %>% select(temperature_surf:par) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Learning"),
+  df_ann_surf_fit %>% select(temperature_surf:par) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Annotated"),
   df_ann_surf_pred %>% select(temperature_surf:par) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "New")
 )
   
@@ -658,7 +640,7 @@ ps3a <- ggplot(pred_surf) +
 
 # Epi
 pred_epi <- bind_rows(
-  df_ann_epi_fit %>% select(temperature_surf:nitrate_epi) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Learning"),
+  df_ann_epi_fit %>% select(temperature_surf:nitrate_epi) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Annotated"),
   df_ann_epi_pred %>% select(temperature_surf:nitrate_epi) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "New")
 ) %>% 
   filter(!variable %in% pred_surf$variable) # drop predictors already shown for surface layer
@@ -671,7 +653,7 @@ ps3b <- ggplot(pred_epi) +
 
 # Meso
 pred_meso <- bind_rows(
-  df_ann_meso_fit %>% select(temperature_surf:nitrate_meso) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Learning"),
+  df_ann_meso_fit %>% select(temperature_surf:nitrate_meso) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Annotated"),
   df_ann_meso_pred %>% select(temperature_surf:nitrate_meso) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "New")
 ) %>% 
   filter(!variable %in% pred_surf$variable) %>% # drop predictors already shown for surface layer
@@ -685,7 +667,7 @@ ps3c <- ggplot(pred_meso) +
 
 # Bathy
 pred_bathy <- bind_rows(
-  df_ann_bathy_fit %>% select(temperature_surf:nitrate_bathy) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Learning"),
+  df_ann_bathy_fit %>% select(temperature_surf:nitrate_bathy) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "Annotated"),
   df_ann_bathy_pred %>% select(temperature_surf:nitrate_bathy) %>% pivot_longer(everything(), names_to = "variable") %>% mutate(type = "New")
 ) %>% 
   filter(!variable %in% pred_surf$variable) %>% # drop predictors already shown for surface layer
@@ -707,14 +689,60 @@ ps3
 ggsave(file = "figures/figure_s3.png", plot = ps3, width = 188, height = 250, unit = "mm", bg = "white")
 
 
-## S4: Rsquares dist in all layers ----
+
+## S4: Distribution of predictors for annual predictions ----
 #--------------------------------------------------------------------------#
+# Distribution of predictors in the learning set VS in new data for seasonal prediction
+
+ps4_facet <- ps3_facet # use same facet as previous figure
 ps4_theme <- theme(
+  axis.text.x = element_text(angle = 45, hjust = 1),
+  axis.title.x = element_blank(),
+  strip.background = element_blank(),
+  strip.placement = "outside",
+  text = element_text(size = 8),
+  strip.text.x = element_text(vjust = 5), 
+  panel.spacing = unit(0, "lines")
+)
+
+df_s4 <- bind_rows(
+  df_seas_surf_fit %>% select(season, temperature_surf:par) %>% pivot_longer(temperature_surf:par, names_to = "variable") %>% mutate(type = "Annotated"),
+  df_seas_surf_pred %>% select(season, temperature_surf:par) %>% pivot_longer(temperature_surf:par, names_to = "variable") %>% mutate(type = "New")
+) %>% 
+  mutate(season = as.character(season))
+
+# Here we need to save figure by figure because they are big. 
+# Some formatting for each season
+seasons <- tibble(
+  season = c(1:4) %>% as.character(),
+  colour = c("#F29762", "#3F9D86", "#486E9E", "#F2BB62"),
+  tag = c("a", "b", "c", "d")
+)
+
+for (i in 1:nrow(seasons)) {
+  # Generate plot
+  p <- df_s4 %>% 
+    filter(season == seasons$season[i]) %>% 
+    ggplot() + 
+    geom_density(aes(x = value, linetype = type), colour = seasons$colour[i], linewidth = 0.3) +
+    labs(x = "Value", y = "Density", linetype = "Data type", tag = seasons$tag[i]) +
+    ps4_facet +
+    ps4_theme
+  
+  # Save it
+  ggsave(file = paste0("figures/figure_s4", seasons$tag[i], ".png"), plot = p, width = 188, height = 120, unit = "mm", bg = "white")
+}
+
+
+## S5: Rsquares and RMSE dist in all layers ----
+#--------------------------------------------------------------------------#
+ps5_theme <- theme(
   text = element_text(size = 8),
   axis.text.x = element_text(angle = 45, hjust = 1)
 )
 
-ps4a <- rsquares %>% 
+# Rsquares annual
+ps5a <- rsquares %>% 
   left_join(resp_to_layer, by = join_by(resp)) %>% 
   filter(season == "0") %>% 
   mutate(bp_factor = interaction(layer, cv_type)) %>% 
@@ -723,17 +751,16 @@ ps4a <- rsquares %>%
   scale_colour_manual(values = c("grey", "black")) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   labs(x = "Layer", y = "R²", colour = "CV type") +
-  ps4_theme
+  ps5_theme
 
-
-ps4b <- rsquares %>% 
+# Rsquares seasonnal
+ps5b <- rsquares %>% 
   left_join(resp_to_layer, by = join_by(resp)) %>% 
   filter(season != "0") %>% 
   mutate(bp_factor = interaction(layer, season)) %>% 
   ggplot() +
   geom_boxplot(aes(x = layer, y = rsq, group = bp_factor, colour = season), position = position_dodge(1),  linewidth = 0.2, outlier.size = 0.2) +
   scale_colour_manual(
-    #values = c("#3F9D86", "#486E9E", "#F2BB62", "#F29762"),
     values = c( "#F29762", "#3F9D86", "#486E9E", "#F2BB62"),
     labels = c(
       `1` = "winter",
@@ -744,41 +771,174 @@ ps4b <- rsquares %>%
     ) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   labs(x = "Layer", y = "R²", colour = "Season") +
-  ps4_theme
+  ps5_theme
 
-ps4 <- ps4a + ps4b + plot_annotation(tag_levels = "a")
-ps4
+# RMSE annual
+ps5c <- rsquares %>% 
+  left_join(resp_to_layer, by = join_by(resp)) %>% 
+  filter(season == "0") %>% 
+  mutate(bp_factor = interaction(layer, cv_type)) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = layer, y = rmse, group = bp_factor, colour = cv_type), position = position_dodge(1), linewidth = 0.2, outlier.size = 0.2) +
+  scale_colour_manual(values = c("grey", "black")) +
+  scale_y_continuous(limits = c(0, 0.2), expand = c(0, 0)) +
+  labs(x = "Layer", y = "RMSE", colour = "CV type") +
+  ps5_theme
+
+# RMSE seasonnal
+ps5d <- rsquares %>% 
+  left_join(resp_to_layer, by = join_by(resp)) %>% 
+  filter(season != "0") %>% 
+  mutate(bp_factor = interaction(layer, season)) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = layer, y = rmse, group = bp_factor, colour = season), position = position_dodge(1),  linewidth = 0.2, outlier.size = 0.2) +
+  scale_colour_manual(
+    values = c("#F29762", "#3F9D86", "#486E9E", "#F2BB62"),
+    labels = c(
+      `1` = "winter",
+      `2` = "spring",
+      `3` = "summer",
+      `4` = "autumn"
+    )
+  ) +
+  scale_y_continuous(limits = c(0, 0.2), expand = c(0, 0)) +
+  labs(x = "Layer", y = "RMSE", colour = "Season") +
+  ps5_theme
+
+# Assemble
+ps5 <- (
+  ((ps5a / ps5c) + plot_layout(guides = "collect", axis_titles = "collect")) | # Left column
+  ((ps5b / ps5d) + plot_layout(guides = "collect", axis_titles = "collect")) # Right column
+  ) + 
+  plot_annotation(tag_levels = list(c("a", "c", "b", "d"))) # Reordered labels
 
 # Save
-ggsave(file = "figures/figure_s4.png", plot = ps4, width = 150, height = 50, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_s5.png", plot = ps5, width = 150, height = 80, unit = "mm", bg = "white")
 
+
+# Nice table of rsquares and RMSE
 rsquares %>% 
   filter(season == "0") %>% 
-  #filter(cv_type == "stratified") %>% 
+  filter(cv_type == "stratified") %>% 
   #filter(cv_type == "spatial") %>% 
-  group_by(resp, cv_type) %>% 
-  summarise(
-      mean = mean(rsq),
-      sd = sd(rsq)
-    )
-
-rsquares %>% 
-  filter(season != "0") %>% 
-  #filter(cv_type == "stratified") %>% 
-  #filter(cv_type == "spatial") %>% 
-  group_by(season) %>% 
+  group_by(resp) %>% 
   summarise(
     mean = mean(rsq),
     sd = sd(rsq)
   )
 
+rsquares %>% 
+  filter(season == "0") %>% 
+  #filter(cv_type == "stratified") %>% 
+  filter(cv_type == "spatial") %>% 
+  group_by(resp) %>% 
+  summarise(
+    mean = mean(rmse),
+    sd = sd(rmse)
+  )
 
-## S5: Spatial VS stratified in surface layer ----
+rsquares %>% 
+  filter(season != "0") %>% 
+  filter(cv_type == "stratified") %>% 
+  #filter(cv_type == "spatial") %>% 
+  group_by(season) %>% 
+  summarise(
+    mean = mean(rmse),
+    sd = sd(rmse)
+  )
+
+
+## S6: Model error VS measure error ----
+#--------------------------------------------------------------------------#
+# Compare RMSE to within pixel sd values
+load("data/01.doc_log_data.Rdata")
+
+# RMSE for non log-transformed values
+rmse_log <- res %>% 
+  select(resp, season, cv_type, fold, preds) %>% 
+  # Unnest predictions
+  unnest(preds) %>% 
+  # Reformat
+  pivot_longer(log_doc_surf:log_doc_bathy, names_to = "layer", values_to = "truth") %>% 
+  drop_na(truth) %>% 
+  select(-layer) %>% 
+  group_by(resp, season, cv_type, fold) %>% 
+  # Compute RMSE for each layer / season / cv_type and fold
+  summarise(
+    rmse = rmse_vec(truth, .pred), .groups = "drop"
+  ) %>% 
+  # Join with nice layer names
+  left_join(resp_to_layer, by = join_by(resp)) %>% 
+  # Some formatting to join with sd values
+  rename(value = rmse) %>% 
+  mutate(metric = "rmse") %>% 
+  select(layer, season, cv_type, metric, value)
+
+sd_log <- df_doc_log %>% 
+  # Convert season to character
+  mutate(season = as.character(season)) %>% 
+  # Keep only sd columns
+  select(season, contains("sd")) %>% 
+  # Reformat
+  pivot_longer(surf_sd:bathy_sd, names_to = "resp", values_to = "sd") %>% 
+  # Nice layer names
+  mutate(resp = paste0("doc_", str_remove(resp, "_sd"))) %>% 
+  left_join(resp_to_layer, by = join_by(resp)) %>% 
+  # Some formatting to join with RMSE values
+  rename(value = sd) %>% 
+  mutate(metric = "sd") %>% 
+  select(layer, season, metric, value)
+
+df_s6 <- bind_rows(rmse_log, sd_log) %>% 
+  # Regroup both CV type for RMSE and SD in one metric name
+  mutate(metric = ifelse(metric == "rmse", paste0("RMSE (", cv_type, " CV)"), "Within pixel SD\nof log-transformed\nDOC values"))
+
+# Annual
+ps6a <- df_s6 %>% 
+  filter(season == "0") %>% 
+  ggplot() +
+  geom_boxplot(aes(x = layer, y = value, colour = metric, linetype = metric), linewidth = 0.2, outlier.size = 0.2) +
+  scale_y_log10() +
+  scale_linetype_manual(values = c("solid", "solid", "22")) +
+  scale_colour_manual(values = c("grey", "black", "#756bb1")) +
+  labs(x = "Layer", y = "Metric value", colour = "Metric", linetype = "Metric") +
+  ps5_theme
+
+# Seasonal
+ps6b <- df_s6 %>% 
+  filter(season != "0") %>% 
+  filter(layer == "Surf.") %>% 
+  ggplot() +
+  geom_boxplot(aes(x = layer, y = value, colour = season, linetype = metric), linewidth = 0.2, outlier.size = 0.2) +
+  scale_colour_manual(
+    values = c( "#F29762", "#3F9D86", "#486E9E", "#F2BB62"),
+    labels = c(
+      `1` = "winter",
+      `2` = "spring",
+      `3` = "summer",
+      `4` = "autumn"
+    )
+  ) +
+  scale_linetype_manual(values = linetype_pal()(2)) +
+  scale_y_log10() +
+  labs(x = "Layer", y = "Metric value", linetype = "Metric", colour = "Season") +
+  ps5_theme +
+  theme(legend.margin = margin(t = 0, b = 0, unit = "mm"))
+
+
+ps6 <- ps6a + ps6b + plot_annotation(tag_levels = "a")
+ps6
+
+# Save
+ggsave(file = "figures/figure_s6.png", plot = ps6, width = 180, height = 60, unit = "mm", bg = "white")
+
+
+## S7: Spatial VS stratified in surface layer ----
 #--------------------------------------------------------------------------#
 # - rsquares value
 # - diff in projections
 
-ps5_theme <- theme(
+ps7_theme <- theme(
   axis.title = element_blank(),
   legend.position = "bottom",
   legend.title = element_markdown(size = 10),
@@ -790,7 +950,7 @@ ps5_theme <- theme(
 )
 
 # Get projections, average and sd by pixel for stratified
-df_5sa <- res %>% 
+df_7sa <- res %>% 
   filter(resp == "doc_surf" & season == "0") %>% 
   filter(cv_type == "stratified") %>% 
   select(fold, new_preds) %>% 
@@ -806,7 +966,7 @@ df_5sa <- res %>%
   )
 
 # Get projections, average and sd by pixel for spatial
-df_5sb <- res %>% 
+df_7sb <- res %>% 
   filter(resp == "doc_surf" & season == "0") %>% 
   filter(cv_type == "spatial") %>% 
   select(fold, new_preds) %>% 
@@ -822,13 +982,13 @@ df_5sb <- res %>%
   )
 
 # Compute difference between stratified and spatial
-df_5s <- df_5sa %>% 
+df_7s <- df_7sa %>% 
   rename(strat = doc_avg) %>% 
-  left_join(df_5sb %>% rename(spat = doc_avg), by = join_by(lon, lat)) %>% 
+  left_join(df_7sb %>% rename(spat = doc_avg), by = join_by(lon, lat)) %>% 
   mutate(diff = strat - spat)
 
 # Plot it
-ps5 <- ggplot(df_5s %>% filter(lon != -0.5)) +
+ps7 <- ggplot(df_7s %>% filter(lon != -0.5)) +
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = diff, colour = diff)) + 
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -836,15 +996,15 @@ ps5 <- ggplot(df_5s %>% filter(lon != -0.5)) +
   scale_colour_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027", guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Difference between projection from stratified CV and spatial CV (μmol kg<sup>-1</sup>)") +
-  ps5_theme
+  ps7_theme
 
 # Save
-ggsave(file = "figures/figure_s5.png", plot = ps5, width = 180, height = 90, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_s7.png", plot = ps7, width = 180, height = 90, unit = "mm", bg = "white")
 
 
-## S6: Seasonal projections in the surface layer ----
+## S8: Seasonal projections in the surface layer ----
 #--------------------------------------------------------------------------#
-ps6_theme <- theme(
+ps8_theme <- theme(
   axis.title = element_blank(),
   legend.position = "bottom",
   legend.title = element_markdown(size = 10),
@@ -858,7 +1018,7 @@ ps6_theme <- theme(
   text = element_text(size = 8)
 )
 
-df_s6 <- res %>% 
+df_s8 <- res %>% 
   filter(resp == "doc_surf" & season != "0") %>% 
   select(fold, new_preds) %>% 
   unnest(new_preds) %>% 
@@ -874,9 +1034,9 @@ df_s6 <- res %>%
     .groups = "drop"
   ) 
 
-doc_avg_lims <- c(min(df_s6$doc_avg), max(df_s6$doc_avg))
+doc_avg_lims <- c(min(df_s8$doc_avg), max(df_s8$doc_avg))
 
-ps6a <- ggplot(df_s6 %>% filter(season == 1) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps8a <- ggplot(df_s8 %>% filter(season == 1) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -884,9 +1044,9 @@ ps6a <- ggplot(df_s6 %>% filter(season == 1) %>% filter(lon != -0.5)) + # Need t
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
-  ps6_theme
+  ps8_theme
 
-ps6b <- ggplot(df_s6 %>% filter(season == 2) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps8b <- ggplot(df_s8 %>% filter(season == 2) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -894,9 +1054,9 @@ ps6b <- ggplot(df_s6 %>% filter(season == 2) %>% filter(lon != -0.5)) + # Need t
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
-  ps6_theme
+  ps8_theme
 
-ps6c <- ggplot(df_s6 %>% filter(season == 3) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps8c <- ggplot(df_s8 %>% filter(season == 3) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -904,9 +1064,9 @@ ps6c <- ggplot(df_s6 %>% filter(season == 3) %>% filter(lon != -0.5)) + # Need t
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
-  ps6_theme
+  ps8_theme
 
-ps6d <- ggplot(df_s6 %>% filter(season == 4) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps8d <- ggplot(df_s8 %>% filter(season == 4) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_avg, colour = doc_avg)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -914,22 +1074,22 @@ ps6d <- ggplot(df_s6 %>% filter(season == 4) %>% filter(lon != -0.5)) + # Need t
   ggplot2::scale_colour_viridis_c(option = "F", trans = "log1p", guide = "none", limits = doc_avg_lims) +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
-  ps6_theme
+  ps8_theme
 
-ps6 <- ps6a + ps6b + ps6c + ps6d + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = 'bottom')
+ps8 <- ps8a + ps8b + ps8c + ps8d + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = 'bottom')
 
 ## Save
-ggsave(file = "figures/figure_s6.png", plot = ps6, width = 180, height = 120, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_s8.png", plot = ps8, width = 180, height = 120, unit = "mm", bg = "white")
 
 
-## S7: Uncertainty for deeper climatologies ----
+## S9: Uncertainty for deeper climatologies ----
 #--------------------------------------------------------------------------#
 # Uncertainties for deeper climatologies:
 # a - epi uncertainty
 # b - meso uncertainty
 # c - bathy uncertainty
 
-ps7_theme <- p2_theme
+ps9_theme <- p2_theme
 
 # Get common colourbar limits for meso and bathy
 doc_sd_lims <- c(
@@ -938,7 +1098,7 @@ doc_sd_lims <- c(
 )
 
 # Plot a
-ps7a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps9a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -946,10 +1106,10 @@ ps7a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  ps7_theme
+  ps9_theme
 
 # Plot b
-ps7b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps9b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -957,10 +1117,10 @@ ps7b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  ps7_theme
+  ps9_theme
 
 # Plot c
-ps7c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps9c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -968,27 +1128,27 @@ ps7c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  ps7_theme
+  ps9_theme
 
 ## Assemble
-ps7 <- ps7a / ps7b / ps7c + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
-ps7
+ps9 <- ps9a / ps9b / ps9c + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
+ps9
 
 ## Save
-ggsave(file = "figures/figure_s7.png", plot = ps7, width = 110, height = 188, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_s9.png", plot = ps9, width = 110, height = 188, unit = "mm", bg = "white")
 
 
-## S8: Partial dependance plots ----
+## S10: Partial dependance plots ----
 #--------------------------------------------------------------------------#
 n_pdp <- 3 # number of pdp for each layer
 
 
-ps8_theme <- theme(
+ps10_theme <- theme(
   axis.title.x = element_blank(), 
   strip.placement = "outside",
   text = element_text(size = 8)
 )
-ps8_facet <- facet_wrap(~var_name, scales = "free_x", strip.position = "bottom")
+ps10_facet <- facet_wrap(~var_name, scales = "free_x", strip.position = "bottom")
 
 
 ## Surface
@@ -1010,15 +1170,15 @@ cp_surf <- res %>%
 # Average across folds
 pdp_surf <- prep_pdp(cp = cp_surf, vars = vars_surf)
 
-ps8a <- pdp_surf %>% 
+ps10a <- pdp_surf %>% 
   left_join(vars_surf %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps8_facet +
-  ps8_theme
+  ps10_facet +
+  ps10_theme
 
 
 ## Epi
@@ -1040,15 +1200,15 @@ cp_epi <- res %>%
 # Average across folds
 pdp_epi <- prep_pdp(cp = cp_epi, vars = vars_epi)
 
-ps8b <- pdp_epi %>% 
+ps10b <- pdp_epi %>% 
   left_join(vars_epi %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps8_facet +
-  ps8_theme
+  ps10_facet +
+  ps10_theme
 
 
 ## Meso
@@ -1070,15 +1230,15 @@ cp_meso <- res %>%
 # Average across folds
 pdp_meso <- prep_pdp(cp = cp_meso, vars = vars_meso)
 
-ps8c <- pdp_meso %>% 
+ps10c <- pdp_meso %>% 
   left_join(vars_meso %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps8_facet +
-  ps8_theme
+  ps10_facet +
+  ps10_theme
 
 
 ## Bathy
@@ -1100,22 +1260,22 @@ cp_bathy <- res %>%
 # Average across folds
 pdp_bathy <- prep_pdp(cp = cp_bathy, vars = vars_bathy)
 
-ps8d <- pdp_bathy %>% 
+ps10d <- pdp_bathy %>% 
   left_join(vars_bathy %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps8_facet +
-  ps8_theme
+  ps10_facet +
+  ps10_theme
 
 
-ps8 <- ps8a / ps8b / ps8c / ps8d + plot_annotation(tag_levels = "a")
-ps8
+ps10 <- ps10a / ps10b / ps10c / ps10d + plot_annotation(tag_levels = "a")
+ps10
 
 ## Save
-ggsave(file = "figures/figure_s8.png", plot = ps8, width = 188, height = 200, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_s10.png", plot = ps10, width = 188, height = 200, unit = "mm", bg = "white")
 
 
 ## Presentation figure: all 4 layers together ----
