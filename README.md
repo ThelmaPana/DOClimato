@@ -45,3 +45,5 @@ Generated climatologies.
 -   `08.total_doc_content.R`: compute total DOC content by integrating projections across all oceans
 
 -   `09.paper_figs.R`: generate all figures for the paper
+
+-   `10.poster_figs.R`: generate all figures for the [poster](poster/Poster_DOC.pdf)
