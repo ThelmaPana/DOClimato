@@ -327,7 +327,6 @@ p2c <- ggplot(df_2c %>% filter(lon != -0.5))  +
   labs(fill = "Predicted DOC (μmol kg<sup>-1</sup>)") +
   p2_theme
 
-
 ## Assemble
 p2 <- p2a / p2b / p2c + plot_layout(axis_titles = "collect") + plot_annotation(tag_levels = "a")
 p2
@@ -847,7 +846,6 @@ rsquares %>%
     sd = sd(rmse)
   )
 
-
 ## S6: Model error VS measure error ----
 #--------------------------------------------------------------------------#
 # Compare RMSE to within pixel sd values
@@ -1030,7 +1028,8 @@ df_s8 <- res %>%
   # Compute avg prediction per pixel
   group_by(lon, lat, season) %>% 
   summarise(
-    doc_avg = wtd.mean(pred_doc, weights = rsq, na.rm = TRUE), 
+    doc_avg = wtd.mean(pred_doc, weights = rsq, na.rm = TRUE),
+    doc_sd = sqrt(wtd.var(pred_doc, weights = rsq, na.rm = TRUE)), 
     .groups = "drop"
   ) 
 
@@ -1077,19 +1076,72 @@ ps8d <- ggplot(df_s8 %>% filter(season == 4) %>% filter(lon != -0.5)) + # Need t
   ps8_theme
 
 ps8 <- ps8a + ps8b + ps8c + ps8d + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = 'bottom')
+ps8
 
 ## Save
 ggsave(file = "figures/figure_s8.png", plot = ps8, width = 180, height = 120, unit = "mm", bg = "white")
 
 
-## S9: Uncertainty for deeper climatologies ----
+## S9: Uncertainty for seasonal surface climatologies ----
+#--------------------------------------------------------------------------#
+# Use same df as previous figure
+doc_sd_lims <- c(min(df_s8$doc_sd), max(df_s8$doc_sd))
+ps9_theme <- ps8_theme
+
+ps9a <- ggplot(df_s8 %>% filter(season == 1) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
+  geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims) +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none", limits = doc_sd_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  ps9_theme
+
+ps9b <- ggplot(df_s8 %>% filter(season == 2) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
+  geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims) +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none", limits = doc_sd_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  ps9_theme
+
+ps9c <- ggplot(df_s8 %>% filter(season == 3) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
+  geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims) +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none", limits = doc_sd_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  ps9_theme
+
+ps9d <- ggplot(df_s8 %>% filter(season == 4) %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
+  geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims) +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none", limits = doc_sd_lims) +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
+  ps9_theme
+
+ps9 <- ps9a + ps9b + ps9c + ps9d + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect") & theme(legend.position = 'bottom')
+ps9
+## Save
+ggsave(file = "figures/figure_s9.png", plot = ps9, width = 180, height = 120, unit = "mm", bg = "white")
+
+
+## S10: Uncertainty for deeper climatologies ----
 #--------------------------------------------------------------------------#
 # Uncertainties for deeper climatologies:
 # a - epi uncertainty
 # b - meso uncertainty
 # c - bathy uncertainty
 
-ps9_theme <- p2_theme
+ps10_theme <- p2_theme
 
 # Get common colourbar limits for meso and bathy
 doc_sd_lims <- c(
@@ -1098,7 +1150,7 @@ doc_sd_lims <- c(
 )
 
 # Plot a
-ps9a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps10a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -1106,10 +1158,10 @@ ps9a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  ps9_theme
+  ps10_theme
 
 # Plot b
-ps9b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps10b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -1117,10 +1169,10 @@ ps9b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  ps9_theme
+  ps10_theme
 
 # Plot c
-ps9c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
+ps10c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
@@ -1128,27 +1180,27 @@ ps9c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
-  ps9_theme
+  ps10_theme
 
 ## Assemble
-ps9 <- ps9a / ps9b / ps9c + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
-ps9
+ps10 <- ps10a / ps10b / ps10c + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
+ps10
 
 ## Save
-ggsave(file = "figures/figure_s9.png", plot = ps9, width = 110, height = 188, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_s10.png", plot = ps10, width = 110, height = 188, unit = "mm", bg = "white")
 
 
-## S10: Partial dependance plots ----
+## S11: Partial dependance plots ----
 #--------------------------------------------------------------------------#
 n_pdp <- 3 # number of pdp for each layer
 
 
-ps10_theme <- theme(
+ps11_theme <- theme(
   axis.title.x = element_blank(), 
   strip.placement = "outside",
   text = element_text(size = 8)
 )
-ps10_facet <- facet_wrap(~var_name, scales = "free_x", strip.position = "bottom")
+ps11_facet <- facet_wrap(~var_name, scales = "free_x", strip.position = "bottom")
 
 
 ## Surface
@@ -1170,15 +1222,15 @@ cp_surf <- res %>%
 # Average across folds
 pdp_surf <- prep_pdp(cp = cp_surf, vars = vars_surf)
 
-ps10a <- pdp_surf %>% 
+ps11a <- pdp_surf %>% 
   left_join(vars_surf %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps10_facet +
-  ps10_theme
+  ps11_facet +
+  ps11_theme
 
 
 ## Epi
@@ -1200,15 +1252,15 @@ cp_epi <- res %>%
 # Average across folds
 pdp_epi <- prep_pdp(cp = cp_epi, vars = vars_epi)
 
-ps10b <- pdp_epi %>% 
+ps11b <- pdp_epi %>% 
   left_join(vars_epi %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps10_facet +
-  ps10_theme
+  ps11_facet +
+  ps11_theme
 
 
 ## Meso
@@ -1230,15 +1282,15 @@ cp_meso <- res %>%
 # Average across folds
 pdp_meso <- prep_pdp(cp = cp_meso, vars = vars_meso)
 
-ps10c <- pdp_meso %>% 
+ps11c <- pdp_meso %>% 
   left_join(vars_meso %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps10_facet +
-  ps10_theme
+  ps11_facet +
+  ps11_theme
 
 
 ## Bathy
@@ -1260,22 +1312,22 @@ cp_bathy <- res %>%
 # Average across folds
 pdp_bathy <- prep_pdp(cp = cp_bathy, vars = vars_bathy)
 
-ps10d <- pdp_bathy %>% 
+ps11d <- pdp_bathy %>% 
   left_join(vars_bathy %>% rename(var_name = variable), by = join_by(var_name)) %>% 
   mutate(var_name = fct_reorder(var_name, dropout_loss, .desc = TRUE)) %>% 
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
   labs(y = "Predicted log(DOC)") +
-  ps10_facet +
-  ps10_theme
+  ps11_facet +
+  ps11_theme
 
 
-ps10 <- ps10a / ps10b / ps10c / ps10d + plot_annotation(tag_levels = "a")
-ps10
+ps11 <- ps11a / ps11b / ps11c / ps11d + plot_annotation(tag_levels = "a")
+ps11
 
 ## Save
-ggsave(file = "figures/figure_s10.png", plot = ps10, width = 188, height = 200, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_s11.png", plot = ps11, width = 188, height = 200, unit = "mm", bg = "white")
 
 
 ## Presentation figure: all 4 layers together ----
