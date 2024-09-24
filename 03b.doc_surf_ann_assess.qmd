@@ -106,27 +106,42 @@ full_vip <- res %>%
   unnest(importance) %>%
   mutate(variable = forcats::fct_reorder(variable, dropout_loss))
 
-# Variable importance across folds
-full_vip %>%
-  filter(variable != "_full_model_") %>%
+# Get RMSE for full model
+full_rmse <- full_vip %>% 
+  filter(variable == "_full_model_") %>% 
+  select(cv_type, fold, full_dropout_loss = dropout_loss) %>% 
+  distinct()
+
+# Compute RMSE increase between loss and full model loss
+full_vip %>% 
+  filter(!str_starts(variable, "_")) %>% # Keep only variables of interest
+  # Join with full model RMSE
+  left_join(full_rmse, by = join_by(cv_type, fold), relationship = "many-to-many") %>% 
+  # Compute difference
+  mutate(diff_loss = dropout_loss - full_dropout_loss) %>% 
   ggplot() +
-  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
-  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
-  labs(x = "RMSE after permutations") +
+  geom_vline(xintercept = 0, linewidth = 2, colour = "grey") +
+  geom_boxplot(aes(x = diff_loss, y = variable, colour = cv_type)) + 
+  labs(x = "RMSE increase", y = "Variable", colour = "CV type") +
   facet_grid(fold~cv_type)
 ```
 
 Now let’s take the mean across folds of each CV type.
 
 ```{r var_imp_mean}
-full_vip %>%
-  filter(variable != "_full_model_") %>%
-  group_by(cv_type, fold, variable) %>%
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>%
+# Compute RMSE increase between loss and full model loss
+full_vip %>% 
+  filter(!str_starts(variable, "_")) %>% # Keep only variables of interest
+  # Join with full model RMSE
+  left_join(full_rmse, by = join_by(cv_type, fold), relationship = "many-to-many") %>% 
+  # Compute difference
+  mutate(diff_loss = dropout_loss - full_dropout_loss) %>% 
+  group_by(cv_type, fold, variable) %>% 
+  summarise(diff_loss = mean(diff_loss), .groups = "drop") %>% 
   ggplot() +
-  geom_vline(data = full_vip %>% filter(variable == "_full_model_"), aes(xintercept = mean(dropout_loss)), colour = "grey", linewidth = 2) +
-  geom_boxplot(aes(x = dropout_loss, y = variable, colour = cv_type)) +
-  labs(x = "Mean RMSE after permutations across CV folds")
+  geom_vline(xintercept = 0, linewidth = 2, colour = "grey") +
+  geom_boxplot(aes(x = diff_loss, y = variable, colour = cv_type)) + 
+  labs(x = "RMSE increase", y = "Variable", colour = "CV type")
 ```
 
 ### Partial dependence plots

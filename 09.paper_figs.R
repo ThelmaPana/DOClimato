@@ -337,79 +337,87 @@ ggsave(file = "figures/figure_2.png", plot = p2, width = 110, height = 188, unit
 
 ## 3: Variable importance ----
 #--------------------------------------------------------------------------#
-# Variable importance
 # Unnest variable importance
-
-full_vip <- res %>% 
+full_vip <- res %>%
   filter(cv_type == "stratified") %>% 
-  select(cv_type, resp, season, fold, importance) %>% 
+  select(cv_type, resp, season, fold, importance) %>%
   unnest(importance) %>%
-  mutate(variable = forcats::fct_reorder(variable, dropout_loss)) %>%
-  group_by(cv_type, resp, season, fold, variable) %>%
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop")
+  mutate(variable = forcats::fct_reorder(variable, dropout_loss))
 
-# Surface
+# Get RMSE for full model
+full_rmse <- full_vip %>% 
+  filter(variable == "_full_model_") %>% 
+  select(cv_type, resp, season, fold, full_dropout_loss = dropout_loss) %>% 
+  distinct()
+
+
+# Surface V2
 vip_surf_ann <- full_vip %>% 
-  filter(variable != "_full_model_") %>%
-  filter(resp == "doc_surf" & season == "0") %>% 
-  group_by(variable) %>% 
-  mutate(mean_dl = mean(dropout_loss)) %>% 
-  ungroup() %>% 
+  filter(!str_starts(variable, "_")) %>% # Keep only variables of interest
+  filter(resp == "doc_surf" & season == "0") %>% # surface annual
+  # Join with full model RMSE
+  left_join(full_rmse, by = join_by(cv_type, fold, resp), relationship = "many-to-many") %>% 
+  # Compute difference
+  mutate(diff_loss = dropout_loss - full_dropout_loss) %>% 
+  group_by(cv_type, fold, variable, resp) %>% 
+  summarise(diff_loss = mean(diff_loss), .groups = "drop") %>% 
   mutate(
     variable = forcats::fct_drop(variable),
-    variable = forcats::fct_reorder(variable, mean_dl),
+    variable = forcats::fct_reorder(variable, diff_loss),
     variable = forcats::fct_other(variable, keep = tail(levels(variable), n = 5), other_level = "other"),
-    variable = forcats::fct_reorder(variable, mean_dl)
+    variable = forcats::fct_reorder(variable, diff_loss)
   )
 
 # Epi
 vip_epi_ann <- full_vip %>% 
-  filter(variable != "_full_model_") %>%
-  filter(resp == "doc_epi" & season == "0") %>% 
-  group_by(variable) %>% 
-  mutate(mean_dl = mean(dropout_loss)) %>% 
-  ungroup() %>% 
+  filter(!str_starts(variable, "_")) %>% # Keep only variables of interest
+  filter(resp == "doc_epi" & season == "0") %>% # epi annual
+  # Join with full model RMSE
+  left_join(full_rmse, by = join_by(cv_type, fold, resp), relationship = "many-to-many") %>% 
+  # Compute difference
+  mutate(diff_loss = dropout_loss - full_dropout_loss) %>% 
+  group_by(cv_type, fold, variable, resp) %>% 
+  summarise(diff_loss = mean(diff_loss), .groups = "drop") %>% 
   mutate(
     variable = forcats::fct_drop(variable),
-    variable = forcats::fct_reorder(variable, mean_dl),
+    variable = forcats::fct_reorder(variable, diff_loss),
     variable = forcats::fct_other(variable, keep = tail(levels(variable), n = 5), other_level = "other"),
-    variable = forcats::fct_reorder(variable, mean_dl)
-  ) 
+    variable = forcats::fct_reorder(variable, diff_loss)
+  )
 
 # Meso
 vip_meso_ann <- full_vip %>% 
-  filter(variable != "_full_model_") %>%
-  filter(resp == "doc_meso" & season == "0") %>% 
-  group_by(variable) %>% 
-  mutate(mean_dl = mean(dropout_loss)) %>% 
-  ungroup() %>% 
+  filter(!str_starts(variable, "_")) %>% # Keep only variables of interest
+  filter(resp == "doc_meso" & season == "0") %>% # meso annual
+  # Join with full model RMSE
+  left_join(full_rmse, by = join_by(cv_type, fold, resp), relationship = "many-to-many") %>% 
+  # Compute difference
+  mutate(diff_loss = dropout_loss - full_dropout_loss) %>% 
+  group_by(cv_type, fold, variable, resp) %>% 
+  summarise(diff_loss = mean(diff_loss), .groups = "drop") %>% 
   mutate(
     variable = forcats::fct_drop(variable),
-    variable = forcats::fct_reorder(variable, mean_dl),
+    variable = forcats::fct_reorder(variable, diff_loss),
     variable = forcats::fct_other(variable, keep = tail(levels(variable), n = 5), other_level = "other"),
-    variable = forcats::fct_reorder(variable, mean_dl)
-  ) 
+    variable = forcats::fct_reorder(variable, diff_loss)
+  )
 
 # Bathy
 vip_bathy_ann <- full_vip %>% 
-  filter(variable != "_full_model_") %>%
-  filter(resp == "doc_bathy" & season == "0") %>% 
-  group_by(variable) %>% 
-  mutate(mean_dl = mean(dropout_loss)) %>% 
-  ungroup() %>% 
+  filter(!str_starts(variable, "_")) %>% # Keep only variables of interest
+  filter(resp == "doc_bathy" & season == "0") %>% # bathy annual
+  # Join with full model RMSE
+  left_join(full_rmse, by = join_by(cv_type, fold, resp), relationship = "many-to-many") %>% 
+  # Compute difference
+  mutate(diff_loss = dropout_loss - full_dropout_loss) %>% 
+  group_by(cv_type, fold, variable, resp) %>% 
+  summarise(diff_loss = mean(diff_loss), .groups = "drop") %>% 
   mutate(
     variable = forcats::fct_drop(variable),
-    variable = forcats::fct_reorder(variable, mean_dl),
+    variable = forcats::fct_reorder(variable, diff_loss),
     variable = forcats::fct_other(variable, keep = tail(levels(variable), n = 5), other_level = "other"),
-    variable = forcats::fct_reorder(variable, mean_dl)
+    variable = forcats::fct_reorder(variable, diff_loss)
   )
-
-## Drop-out loss for full model
-full_model_vip <- full_vip %>% 
-  filter(variable == "_full_model_") %>% 
-  mutate(resp = factor(resp, levels = c("doc_surf", "doc_epi", "doc_meso", "doc_bathy"))) %>% 
-  group_by(resp) %>% 
-  summarise(dropout_loss = mean(dropout_loss))
 
 # Assemble layers
 df_3 <- vip_surf_ann %>% 
@@ -434,22 +442,31 @@ df_3 <- vip_surf_ann %>%
   ) %>% 
   # Generate interaction between layers and variables to order variables in each layer
   mutate(variable_full = paste0(variable, "-" ,resp)) %>% 
-  arrange(mean_dl) %>% 
+  arrange(diff_loss) %>% 
   mutate(variable_full = fct_inorder(variable_full))
 
 #($\log([\mathrm{chl}_a])$)
 
 
 # Extract labels for y axis
-df_3_names <- df_3 %>% 
+df_3_var_names <- df_3 %>% 
   select(variable, variable_full) %>% 
   unique()
-labeller <- setNames(str_c(df_3_names$variable), str_c(df_3_names$variable_full))
+var_labeller <- setNames(str_c(df_3_var_names$variable), str_c(df_3_var_names$variable_full))
 
-# Plot
+# And for facets
+df_3_facet_names <- df_3 %>% 
+  select(resp) %>% 
+  distinct() %>% 
+  mutate(resp_full = c("Bathy.", "Meso.", "Epi.", "Surf."))
+facet_labeller <- setNames(str_c(df_3_facet_names$resp_full), str_c(df_3_facet_names$resp))
+
+
+## Plot
+# With colour
 p3 <- ggplot(df_3) + 
-  geom_vline(data = full_model_vip, aes(xintercept = dropout_loss), colour = "grey", linewidth = 0.8) +
-  geom_boxplot(aes(x = dropout_loss, y = variable_full, colour = resp), outlier.size = 0.3, linewidth = 0.2) +
+  geom_vline(xintercept = 0, colour = "grey", linewidth = 0.8) +
+  geom_boxplot(aes(x = diff_loss, y = variable_full, colour = resp), outlier.size = 0.3, linewidth = 0.2) +
   scale_colour_manual(
     values = c("#bdd7e7", "#6baed6", "#3182bd", "#08519c"),
     labels = c(
@@ -459,7 +476,7 @@ p3 <- ggplot(df_3) +
       doc_bathy = "Bathy."
     )) +
   expand_limits(x = 0) +
-  labs(x = "RMSE", y = "Variable", colour = "Layer") +
+  labs(x = "Increase in RMSE after permutation", y = "Variable", colour = "Layer") +
   facet_wrap(~resp, ncol = 1, scales = "free_y") +
   scale_y_discrete(labels = function(x) str_replace_all(x, labeller)) +
   theme(
@@ -471,8 +488,23 @@ p3 <- ggplot(df_3) +
   )
 p3
 
+# Without colour
+p3 <- ggplot(df_3) + 
+  geom_vline(xintercept = 0, colour = "grey", linewidth = 0.8) +
+  geom_boxplot(aes(x = diff_loss, y = variable_full), outlier.size = 0.3, linewidth = 0.2) +
+  expand_limits(x = 0) +
+  labs(x = "Increase in RMSE after permutation", y = "Variable", colour = "Layer") +
+  facet_wrap(~resp, ncol = 1, scales = "free_y", labeller = labeller(resp = facet_labeller)) +
+  scale_y_discrete(labels = function(x) str_replace_all(x, var_labeller)) +
+  theme(
+    axis.text.y = element_markdown(),
+    text = element_text(size = 8)
+  )
+p3
+
 ## Save
 ggsave(file = "figures/figure_3.png", plot = p3, width = 80, height = 100, unit = "mm", bg = "white")
+
 
 
 ## Format and save climatologies ----
