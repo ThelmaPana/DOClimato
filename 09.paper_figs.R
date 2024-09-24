@@ -721,7 +721,7 @@ ggsave(file = "figures/figure_s3.png", plot = ps3, width = 188, height = 250, un
 
 
 
-## S4: Distribution of predictors for annual predictions ----
+## S4: Distribution of predictors for seasonal predictions ----
 #--------------------------------------------------------------------------#
 # Distribution of predictors in the learning set VS in new data for seasonal prediction
 
@@ -763,6 +763,16 @@ for (i in 1:nrow(seasons)) {
   # Save it
   ggsave(file = paste0("figures/figure_s4", seasons$tag[i], ".png"), plot = p, width = 188, height = 120, unit = "mm", bg = "white")
 }
+
+
+# Second version with all seasons together, but less readable
+df_s4 %>% 
+  ggplot() + 
+  geom_density(aes(x = value, linetype = type, colour = season), linewidth = 0.3) +
+  scale_colour_manual(values = c("#F29762", "#3F9D86", "#486E9E", "#F2BB62")) +
+  labs(x = "Value", y = "Density", linetype = "Data type", colour = "Season") +
+  ps4_facet +
+  ps4_theme
 
 
 ## S5: Rsquares and RMSE dist in all layers ----
@@ -1186,8 +1196,10 @@ ps10a <- ggplot(df_2a %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
-  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
-  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
+  #ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
+  #ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p") +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
   ps10_theme
@@ -1197,8 +1209,10 @@ ps10b <- ggplot(df_2b %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
-  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
-  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
+  #ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
+  #ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p") +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
   ps10_theme
@@ -1208,14 +1222,16 @@ ps10c <- ggplot(df_2c %>% filter(lon != -0.5)) + # Need to remove lon = -0.5
   geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
   geom_tile(aes(x = lon, y = lat, fill = doc_sd, colour = doc_sd)) +
   geom_sf(data = world_rob, fill = "gray80", colour = NA) +
-  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
-  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
+  #ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, breaks = c(1, 5, 10)) +
+  #ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", limits = doc_sd_lims, guide = "none") +
+  ggplot2::scale_fill_viridis_c(option = "E", trans = "log1p") +
+  ggplot2::scale_colour_viridis_c(option = "E", trans = "log1p", guide = "none") +
   coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
   labs(fill = "Prediction uncertainty (μmol kg<sup>-1</sup>)") +
   ps10_theme
 
 ## Assemble
-ps10 <- ps10a / ps10b / ps10c + plot_layout(axis_titles = "collect", guides = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
+ps10 <- ps10a / ps10b / ps10c + plot_layout(axis_titles = "collect") + plot_annotation(tag_levels = "a")
 ps10
 
 ## Save
