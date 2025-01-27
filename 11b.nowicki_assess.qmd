@@ -1,0 +1,220 @@
+---
+title: "Assess DOC predictions from a biogeochemical model output."
+subtitle: "Fit a XGBoost model to predict DOC from environmental data and apply it to new data."
+author: "Thelma Panaïotis"
+format:
+  html:
+    toc: true
+    embed-resources: true
+    lightbox: true
+editor: visual
+execute:
+  cache: true
+  warning: false
+---
+
+## Set-up and load predictions
+
+```{r set_up}
+#|output: false
+#|cache: false
+source("utils.R")
+
+# ML predictions
+load("data/11a.nowicki_pred.Rdata")
+```
+
+## Process ML  predictions
+
+### Model performance
+
+Compute R² and RMSE between predictions and original field.
+
+```{r rsquares}
+rsquares <- res %>% 
+  select(fold, preds) %>% 
+  unnest(preds) %>% 
+  group_by(fold) %>% 
+  summarise(
+    rsq = rsq_vec(doc_bathy, .pred),
+    rmse = rmse_vec(doc_bathy, .pred)
+  )
+summary(rsquares)
+rsquares %>% 
+  select(rsq, rmse) %>% 
+  map_df(~tibble(
+    mean = mean(.x),
+    sd = sd(.x)
+    ))
+```
+
+Good predictive power!
+
+### Projections
+
+Average predictions across folds.
+
+```{r avg_folds}
+proj <- res %>% 
+  select(fold, new_preds) %>% 
+  unnest(new_preds) %>% 
+  select(fold, lon, lat, pred_doc) %>% 
+  group_by(lon, lat) %>% 
+  summarise(
+    doc_mean = mean(pred_doc),
+    doc_sd = sd(pred_doc),
+    .groups = "drop"
+  ) %>% 
+  ungroup()
+```
+
+Plot map of predicted DOC.
+
+```{r map_avg}
+# Map of mean predicted DOC
+ggplot(proj) +
+  geom_raster(aes(x = lon, y = lat, fill = doc_mean)) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  ggplot2::scale_fill_viridis_c(option = "F") +
+  labs(fill = "Predicted DOC<br>(μmol kg<sup>-1</sup>)") +
+  coord_quickmap(expand = 0) +
+  theme(legend.title = element_markdown())
+```
+
+Plot uncertainty.
+
+```{r map_sd}
+# Map of uncertainty
+ggplot(proj) +
+  geom_raster(aes(x = lon, y = lat, fill = doc_sd)) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  ggplot2::scale_fill_viridis_c(option = "E") +
+  labs(fill = "DOC uncertainty<br>(μmol kg<sup>-1</sup>)") +
+  coord_quickmap(expand = 0) +
+  theme(legend.title = element_markdown())
+```
+
+## Compare with output from Nowicki
+
+### Read output from Nowicki
+
+```{r read_now}
+nc_now <- nc_open("data/raw/biopump_model_output.nc")
+nc_data_now <- nc_now %>%
+  {list(
+    lon = ncvar_get(., "LON")[1,,1], 
+    lat = ncvar_get(., "LAT")[,1,1], 
+    depth = ncvar_get(., "DEPTH")[1,1,], 
+    doc = ncvar_get(., "DOC") # mmolC/m^3
+  )} 
+# Close file
+nc_close(nc_now)
+# To vector and to single column df
+df_now <- nc_data_now$doc %>% as.vector() %>% as.data.frame() %>% setNames("doc")
+# Add lon, lat and depth
+df_now$lat <- nc_data_now$lat # need to start with lat because of how data is stored
+df_now$lon <- rep(nc_data_now$lon, each = length(nc_data_now$lat))
+df_now$depth <- rep(nc_data_now$depth, each = length(nc_data_now$lon)*length(nc_data_now$lat))
+
+# Clean
+df_now <- df_now %>% 
+  as_tibble() %>% 
+  select(lon, lat, depth, doc) %>% 
+  mutate(
+    lon = ifelse(lon > 180, lon - 360, lon), # Center map on 0 longitude
+    doc = (doc * 1000) / 1027.7              # Convert mmolC m⁻³ to µmolC kg⁻¹
+  ) %>%
+  filter(depth > 1000) # keep only bathypelagic layer
+
+
+# Round lon and lat to a 2° grid
+# Average DOC per pixel for the entire bathypelagic layer
+df_now <- df_now %>% 
+  mutate(
+    lon = roundp(lon, precision = 2, f = floor) + 1,
+    lat = roundp(lat, precision = 2, f = floor) + 1
+  ) %>% 
+  group_by(lon, lat) %>% 
+  summarise(doc = mean(doc, na.rm = TRUE), .groups = "drop") %>% 
+  ungroup()
+```
+
+Plot field.
+
+```{r plot_now}
+ggplot(df_now) +
+  geom_raster(aes(x = lon, y = lat, fill = doc)) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  ggplot2::scale_fill_viridis_c(option = "F", na.value = NA) +
+  labs(fill = "Modelled DOC<br>(μmol kg<sup>-1</sup>)") +
+  coord_quickmap(expand = 0) +
+  theme(legend.title = element_markdown())
+```
+
+### Assemble ML predictions and original field
+
+First, we need our prediction grid to match the one from Nowicki.
+
+```{r assemble}
+## Format predictions to match Nowicki grid
+proj_now <- proj %>% 
+  mutate(
+    lon = roundp(lon, precision = 2, f = floor) + 1,
+    lat = roundp(lat, precision = 2, f = floor) + 1
+  ) %>% 
+  group_by(lon, lat) %>% 
+  summarise(doc_pred = mean(doc_mean, na.rm = TRUE), .groups = "drop") %>% 
+  ungroup()
+
+# Assemble predictions and Nowicki output
+comp <- df_now %>% left_join(proj_now, by = join_by(lon, lat))
+```
+
+### Prediction performance
+
+```{r pred_perf}
+comp %>% 
+  summarise(
+    rsq = rsq_vec(doc, doc_pred),
+    rmse = rmse_vec(doc, doc_pred)
+    )
+```
+
+Good prediction!
+
+Let’s now plot prediction VS truth.
+
+```{r plot_pred_truth}
+ggplot(comp) +
+  geom_bin_2d(aes(x = doc, y = doc_pred), bins = 100) +
+  geom_abline(slope = 1, intercept = 0, colour = "red") +
+  scale_fill_viridis_c(trans = "log1p") +
+  labs(x = "DOC (μmol kg<sup>-1</sup>)", y = "Predicted DOC (μmol kg<sup>-1</sup>)", fill = "Count") +
+  coord_fixed() +
+  theme_classic() +
+  theme(axis.title.x = element_markdown(), axis.title.y = element_markdown())
+```
+
+Good!
+
+Let’s now plot a map of differences.
+
+```{r plot_map_diff}
+comp %>% 
+  mutate(diff = doc - doc_pred) %>% 
+  ggplot() +
+  geom_raster(aes(x = lon, y = lat, fill = diff)) +
+  geom_polygon(data = world, aes(x = lon, y = lat, group = group), fill = "grey") +
+  scale_fill_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027", na.value = NA) +
+  labs(fill = "ΔDOC (Model - ML)<br>(μmol kg<sup>-1</sup>)") +
+  coord_quickmap(expand = 0) +
+  theme(legend.title = element_markdown())
+```
+
+## Save
+
+Finally, save our comparison for further plotting.
+
+```{r save}
+save(comp, file = "data/11b.now_comp.Rdata")
+```

@@ -1,0 +1,376 @@
+---
+title: "Predict DOC from a biogeochemical model output."
+subtitle: "Fit a XGBoost model to predict DOC from environmental data and apply it to new data."
+author: "Thelma Panaïotis"
+format:
+  html:
+    toc: true
+    embed-resources: true
+    lightbox: true
+editor: visual
+execute:
+  cache: true
+  warning: false
+---
+
+## Set-up and load data
+
+```{r set_up}
+#|output: false
+#|cache: false
+source("utils.R")
+
+# Extraction from Nowicki 2022
+now <- read_csv("data/raw/Nowicki_pixel_extraction.csv", show_col_types = FALSE)
+now <- now %>% mutate(DOC_sample = (DOC_sample * 1000) / 1027.7 ) # convert from mmol C m⁻³ to to µmol C kg⁻¹ 
+
+# DOC observations from Hansell
+obs <- read_csv("data/00.df_doc_obs.csv", show_col_types = FALSE)
+```
+
+## Prepare data
+
+### Assemble model output and observations
+
+Row order is supposed to be preserved among model output and observations.
+
+```{r bind_mod_obs}
+df <- bind_cols(obs, now)
+```
+
+Let’s check if binding is OK on depth, lon and lat.
+
+```{r check_depth}
+df %>% 
+  slice_sample(n = 10000) %>% 
+  ggplot() +
+  geom_point(aes(x = press, y = DEPTH_sample)) +
+  geom_abline(slope = 1, intercept = 0, colour = "red")
+```
+
+OK!
+
+```{r check_lon}
+df %>% 
+  slice_sample(n = 10000) %>% 
+  ggplot() +
+  geom_point(aes(x = lon, y = LON_sample)) +
+  geom_abline(slope = 1, intercept = 0, colour = "red")
+```
+
+Not OK!
+
+```{r check_lat}
+df %>% 
+  slice_sample(n = 10000) %>% 
+  ggplot() +
+  geom_point(aes(x = lat, y = LAT_sample)) +
+  geom_abline(slope = 1, intercept = 0, colour = "red")
+```
+
+All points should be on the 1:1 line if match-up was ok. It’s not ok for lon and lat. We need to filter match-ups based on distance between observation and model pixels.
+
+```{r filter_match}
+# Compute distance (km) between observation and model point
+df <- df %>% 
+  mutate(dist = geodDist(longitude1 = lon, latitude1 = lat, longitude2 = LON_sample, latitude2 = LAT_sample))
+summary(df$dist)
+```
+
+Some distances are very large. Plot distribution.
+
+```{r plot_dist}
+ggplot(df) + geom_density(aes(x = dist))
+# Let’s zoom in
+ggplot(df) + geom_density(aes(x = dist)) + xlim(0, 200)
+```
+
+200 km seems a good threshold. Filter distances using a 200 km threshold.
+
+```{r filter_dist}
+df <- df %>% filter(dist < 200)
+```
+
+Let’s now check the filtered match-ups.
+
+```{r check_depth_2}
+df %>% 
+  slice_sample(n = 10000) %>% 
+  ggplot() +
+  geom_point(aes(x = press, y = DEPTH_sample)) +
+  geom_abline(slope = 1, intercept = 0, colour = "red")
+```
+
+OK!
+
+```{r check_lon_2}
+df %>% 
+  slice_sample(n = 10000) %>% 
+  ggplot() +
+  geom_point(aes(x = lon, y = LON_sample)) +
+  geom_abline(slope = 1, intercept = 0, colour = "red")
+```
+
+OK!
+
+```{r check_lat_2}
+df %>% 
+  slice_sample(n = 10000) %>% 
+  ggplot() +
+  geom_point(aes(x = lat, y = LAT_sample)) +
+  geom_abline(slope = 1, intercept = 0, colour = "red")
+```
+
+OK!
+
+### Average by pixel and layer
+
+```{r avg_pix_lay}
+df <- df %>% 
+  select(-c(lon, lat, date, press)) %>% 
+  select(lon = LON_sample, lat = LAT_sample, depth = DEPTH_sample, doc_obs = doc, doc_mod = DOC_sample)
+
+# Assign to layers
+df <- df %>% 
+  mutate(layer = case_when(
+    depth <= surface_bottom ~ "surf",
+    depth > surface_bottom & depth <= meso_top ~ "epi",   
+    depth > meso_top & depth <= meso_bottom ~ "meso",
+    depth > meso_bottom ~ "bathy",
+  )) %>% 
+  filter(!is.na(layer)) %>% # drop observations not assigned to any layer
+  mutate(layer = factor(layer, levels = c("epi", "meso", "bathy"))) # NB: no model outputs for surface layer, i.e. depth < 10 m
+
+# Average by px and by layer
+df_pix <- df %>%
+  mutate(
+    # floor and add 0.5 because other env data are on the centre of each pixel
+    lon = roundp(lon, precision = 1, f = floor) + 0.5,
+    lat = roundp(lat, precision = 1, f = floor) + 0.5
+  ) %>%
+  group_by(lon, lat, layer) %>%
+  summarise(
+    # compute mean and sd
+    doc_obs_mean = mean(doc_obs),
+    doc_obs_sd = sd(doc_obs),
+    doc_mod_mean = mean(doc_mod),
+    doc_mod_sd = sd(doc_mod),
+    n = n(),
+    .groups = "drop"
+  ) 
+summary(df_pix)
+```
+
+Let’s plot a map of observations.
+
+```{r plot_map_obs}
+# Map of observations
+ggplot(df_pix) +
+  geom_point(aes(x = lon, y = lat, colour = doc_obs_mean), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(trans = "log1p") +
+  coord_quickmap(expand = 0) +
+  facet_wrap(~layer, ncol = 2)
+```
+
+Let’s plot a map of model output.
+
+```{r plot_map_mod}
+# Map of model_output
+ggplot(df_pix) +
+  geom_point(aes(x = lon, y = lat, colour = doc_mod_mean), size = 0.5) +
+  ggplot2::scale_colour_viridis_c(trans = "log1p") +
+  coord_quickmap(expand = 0) +
+  facet_wrap(~layer, ncol = 2)
+```
+
+And plot observations VS model.
+
+```{r plot_mod_vs_obs}
+# Plot obs VS mod
+ggplot(df_pix) +
+  geom_point(aes(x = doc_obs_mean, y = doc_mod_mean), size = 0.5, alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, colour = "red") +
+  facet_wrap(~layer, scales = "free", ncol = 2)
+```
+
+Points are not really on the 1:1 line: not a great agreement between model and observations.
+
+Let’s compute R² and RMSE for each layer.
+
+```{r rmse_obs_mod}
+# Compute R² and RMSE for each layer
+df_pix %>% 
+  group_by(layer) %>% 
+  summarise(
+    rsq = rsq_vec(doc_obs_mean, doc_mod_mean),
+    rmse = rmse_vec(doc_obs_mean, doc_mod_mean)
+  )
+```
+
+The correlation between observations and model output is better for the bathypelagic layer. Let’s focus on this layer only.
+
+```{r keep_bathy}
+df_fit <- df_pix %>% filter(layer == "bathy") %>% select(lon, lat, doc_bathy = doc_mod_mean)
+```
+
+Last step before model fitting. Do we need to log-transform the response variable?
+
+```{r plot_doc_mod}
+ggplot(df_fit) + geom_density(aes(x = doc_bathy)) + theme_classic()
+```
+
+Log-transformation not necessary.
+
+### Assemble with predictors
+
+Let’s assemble our DOC model outputs with environmental predictors from the bathypelagic layer.
+
+```{r assemble_env}
+load("data/00.all_env.Rdata")
+df_env <- df_env %>% rename_all(~ sub("\\.", "_", .x)) # fix column names
+df_fit <- df_fit %>% 
+  left_join(df_env %>% filter(season == 0), join_by(lon, lat)) %>% # assemble with annual env data
+  select(-season) %>% 
+  drop_na()
+#rm(df_env) # not needed anymore
+```
+
+`df_fit` will be used to fit the model.
+
+### Prepare data for projections
+
+Finally, we also need to prepare data from global projections.
+
+```{r load_proj}
+load("data/02.ann_bathy.Rdata")
+#rm(df_ann_bathy_fit) # drop the initial data for fitting the model (Hansell obs)
+df_pred <- df_ann_bathy_pred %>% select(-season)
+```
+
+## Define and fit ML model
+
+### Variable roles
+
+```{r var_roles}
+# Response variable
+resp_var <- c("doc_bathy") # keep both untransformed and transformed predictor
+# Explanatory variables
+exp_vars <- df_fit %>% select(temperature_surf:nitrate_bathy) %>% colnames()
+# Metadata
+meta_vars <- c("lon", "lat")
+```
+
+### CV folds
+
+```{r cv}
+# CV
+set.seed(seed)
+# Stratified CV on deciles of response variable
+folds <- nested_cv(
+  df_fit,
+  outside = vfold_cv(v = 10, strata = doc_bathy, breaks = 9),
+  inside = vfold_cv(v = 10, strata = doc_bathy, breaks = 9)) %>%
+  mutate(cv_type = "stratified")
+```
+
+### Define model and formula
+
+```{r def_mod}
+# Define a xgboost model with hyperparameters to tune
+xgb_spec <- boost_tree(
+  trees = tune(),
+  tree_depth = tune(),
+  min_n = tune(),
+  learn_rate = tune()
+) %>%
+  set_mode("regression") %>%
+  set_engine("lightgbm")
+
+# Generate formula from list of explanatory variables
+xgb_form <- as.formula(paste("doc_bathy ~ ", paste(c(exp_vars), collapse = " + "), sep = ""))
+```
+
+### Define grid for gridsearch
+
+```{r grid}
+# Define one grid for all folds
+set.seed(seed)
+xgb_grid <- grid_latin_hypercube(
+  trees(),
+  learn_rate(),
+  tree_depth(),
+  min_n(),
+  size = 30
+)
+```
+
+### Fit it!
+
+```{r fit}
+# Fit the model
+res <- lapply(1:nrow(folds), function(i){
+  
+  message(paste0("Processing fold ", i, " out of ", nrow(folds)))
+  
+  ## Get fold
+  x <- folds[i,]
+  
+  ## Train and test sets
+  df_train <- analysis(x$splits[[1]]) %>% as_tibble()
+  df_test <- assessment(x$splits[[1]]) %>% as_tibble()
+  
+  ## Recipe
+  xgb_rec <- recipe(xgb_form, data = df_train)
+  
+  ## Workflow
+  xgb_wflow <- workflow() %>%
+    add_recipe(xgb_rec) %>%
+    add_model(xgb_spec)
+  
+  ## Gridsearch
+  set.seed(seed)
+  doParallel::registerDoParallel(n_cores)
+  xgb_res <- tune_grid(
+    xgb_wflow,
+    resamples = x$inner_resamples[[1]],
+    grid = xgb_grid,
+    metrics = metric_set(rmse),
+    control = control_grid(save_pred = TRUE)
+  )
+  best_params <- select_best(xgb_res)
+  
+  ## Final fit
+  final_xgb <- finalize_workflow(
+    xgb_wflow,
+    best_params
+  )
+  final_res <- fit(final_xgb, df_train)
+  
+  ## Prediction on outer folds
+  preds <- predict(final_res, new_data = df_test) %>%
+    bind_cols(df_test %>% select(doc_bathy, lon, lat))
+  
+  ## Predict new data
+  new_preds <- augment(final_res, new_data = df_pred) %>% 
+    rename(pred_doc = .pred) %>% 
+    relocate(pred_doc, .after = lat)
+  
+  doParallel::stopImplicitCluster()
+  
+  ## Return results
+  return(tibble(
+    resp = "doc_bathy",
+    cv_type = x$cv_type,
+    fold = x$id,
+    preds = list(preds),
+    new_preds = list(new_preds)
+  ))
+}) %>%
+  bind_rows()
+```
+
+## Save results
+
+```{r save}
+save(res, file = "data/11a.nowicki_pred.Rdata")
+```
