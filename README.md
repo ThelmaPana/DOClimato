@@ -36,7 +36,7 @@ Generated climatologies.
 
 -   `03a.doc_surf_ann_fit` to `06a.doc_bathy_ann_fit`: fit BRT models for annual climatologies in surface, epipelagic, mesopelagic and bathypelagic layers
 
--   `03b.doc_surf_ann_assess` to `06a.doc_bathy_ann_assess`: assess fitting of BRT models for annual climatologies in surface, epipelagic, mesopelagic and bathypelagic layers
+-   `06b.doc_surf_ann_assess` to `06a.doc_bathy_ann_assess`: assess fitting of BRT models for annual climatologies in surface, epipelagic, mesopelagic and bathypelagic layers
 
 -   `07a.doc_surf_seas_fit`: fit BRT models for seasonal surface climatologies
 
@@ -47,3 +47,7 @@ Generated climatologies.
 -   `09.paper_figs.R`: generate all figures for the paper
 
 -   `10.poster_figs.R`: generate all figures for the [poster](poster/Poster_DOC.pdf)
+
+-   `11a.nowicki_fit` fit a BRT model to reconstruct the DOC bathy field from [Nowicki 2022](https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2021GB007083)
+
+-   `11b.nowicki_assess` assess fitting of BRT model to reconstruct the DOC bathy field from Nowicki 2022
