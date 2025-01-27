@@ -462,48 +462,49 @@ df_3_facet_names <- df_3 %>%
 facet_labeller <- setNames(str_c(df_3_facet_names$resp_full), str_c(df_3_facet_names$resp))
 
 
-## Plot
-# With colour
-p3 <- ggplot(df_3) + 
-  geom_vline(xintercept = 0, colour = "grey", linewidth = 0.8) +
-  geom_boxplot(aes(x = diff_loss, y = variable_full, colour = resp), outlier.size = 0.3, linewidth = 0.2) +
-  scale_colour_manual(
-    values = c("#bdd7e7", "#6baed6", "#3182bd", "#08519c"),
-    labels = c(
-      doc_surf = "Surf.",
-      doc_epi = "Epi.",
-      doc_meso = "Meso.",
-      doc_bathy = "Bathy."
-    )) +
-  expand_limits(x = 0) +
-  labs(x = "Increase in RMSE after permutation", y = "Variable", colour = "Layer") +
-  facet_wrap(~resp, ncol = 1, scales = "free_y") +
-  scale_y_discrete(labels = function(x) str_replace_all(x, labeller)) +
-  theme(
-    strip.background = element_blank(), strip.text.x = element_blank(), # empty facets
-    legend.position = "inside", legend.position.inside = c(0.75, 0.4), # legend position
-    legend.background = element_rect(fill = "white", colour = NA),
-    axis.text.y = element_markdown(),
-    text = element_text(size = 8)
-  )
-p3
+### Plot
+## With colour
+#p3 <- ggplot(df_3) + 
+#  geom_vline(xintercept = 0, colour = "grey", linewidth = 0.8) +
+#  geom_boxplot(aes(x = diff_loss, y = variable_full, colour = resp), outlier.size = 0.3, linewidth = 0.2) +
+#  scale_colour_manual(
+#    values = c("#bdd7e7", "#6baed6", "#3182bd", "#08519c"),
+#    labels = c(
+#      doc_surf = "Surf.",
+#      doc_epi = "Epi.",
+#      doc_meso = "Meso.",
+#      doc_bathy = "Bathy."
+#    )) +
+#  expand_limits(x = 0) +
+#  labs(x = "Increase in RMSE after permutation", y = "Variable", colour = "Layer") +
+#  facet_wrap(~resp, ncol = 1, scales = "free_y") +
+#  scale_y_discrete(labels = function(x) str_replace_all(x, labeller)) +
+#  theme(
+#    strip.background = element_blank(), strip.text.x = element_blank(), # empty facets
+#    legend.position = "inside", legend.position.inside = c(0.75, 0.4), # legend position
+#    legend.background = element_rect(fill = "white", colour = NA),
+#    axis.text.y = element_markdown(),
+#    text = element_text(size = 8)
+#  )
+#p3
 
 # Without colour
 p3 <- ggplot(df_3) + 
   geom_vline(xintercept = 0, colour = "grey", linewidth = 0.8) +
   geom_boxplot(aes(x = diff_loss, y = variable_full), outlier.size = 0.3, linewidth = 0.2) +
   expand_limits(x = 0) +
-  labs(x = "Increase in RMSE after permutation", y = "Variable", colour = "Layer") +
+  labs(x = "Increase in RMSE after permutation (μmol kg<sup>-1</sup>)", y = "Variable", colour = "Layer") +
   facet_wrap(~resp, ncol = 1, scales = "free_y", labeller = labeller(resp = facet_labeller)) +
   scale_y_discrete(labels = function(x) str_replace_all(x, var_labeller)) +
   theme(
     axis.text.y = element_markdown(),
-    text = element_text(size = 8)
+    axis.title.x = element_markdown(),
+    text = element_text(size = 9)
   )
 p3
 
 ## Save
-ggsave(file = "figures/figure_3.png", plot = p3, width = 80, height = 100, unit = "mm", bg = "white")
+ggsave(file = "figures/figure_3.png", plot = p3, width = 100, height = 110, unit = "mm", bg = "white")
 
 
 
@@ -533,7 +534,6 @@ load("data/02.seas_surf.Rdata")
 
 # Count of observations
 df_seas_surf_fit %>% count(season)
-
 
 ps1_theme <- theme(
   axis.title = element_blank(),
@@ -650,8 +650,8 @@ ps3_theme <- theme(
   legend.margin = margin(0, 0, 0, 0),
   legend.box.margin = margin(-10, -10, 0, -10),
   plot.margin = unit(c(0, 0, 0, 0), "mm"),
-  text = element_text(size = 8),
-  strip.text.x = element_text(vjust = 5), 
+  text = element_text(size = 9),
+  strip.text.x = element_text(vjust = 4), 
   panel.spacing = unit(0, "lines")
 )
 
@@ -668,6 +668,7 @@ ps3a <- ggplot(pred_surf) +
   labs(x = "Value", y = "Density", linetype = "Data type") +
   ps3_facet +
   ps3_theme
+ps3a
 
 # Epi
 pred_epi <- bind_rows(
@@ -713,7 +714,7 @@ ps3d <- ggplot(pred_bathy) +
 
 # Assemble
 ps3 <- ps3a / ps3b / ps3c / ps3d + plot_annotation(tag_levels = "a") + plot_layout(guides = "collect", heights = c(6, 2, 2, 2))
-ps3
+#ps3
 
 
 # Save
@@ -778,8 +779,9 @@ df_s4 %>%
 ## S5: Rsquares and RMSE dist in all layers ----
 #--------------------------------------------------------------------------#
 ps5_theme <- theme(
-  text = element_text(size = 8),
-  axis.text.x = element_text(angle = 45, hjust = 1)
+  text = element_text(size = 9),
+  axis.text.x = element_text(angle = 45, hjust = 1),
+  axis.title.y = element_markdown()
 )
 
 # Rsquares annual
@@ -823,7 +825,7 @@ ps5c <- rsquares %>%
   geom_boxplot(aes(x = layer, y = rmse, group = bp_factor, colour = cv_type), position = position_dodge(1), linewidth = 0.2, outlier.size = 0.2) +
   scale_colour_manual(values = c("grey", "black")) +
   scale_y_continuous(limits = c(0, 0.2), expand = c(0, 0)) +
-  labs(x = "Layer", y = "RMSE", colour = "CV type") +
+  labs(x = "Layer", y = "RMSE<br>(μmol kg<sup>-1</sup>)", colour = "CV type") +
   ps5_theme
 
 # RMSE seasonnal
@@ -843,7 +845,7 @@ ps5d <- rsquares %>%
     )
   ) +
   scale_y_continuous(limits = c(0, 0.2), expand = c(0, 0)) +
-  labs(x = "Layer", y = "RMSE", colour = "Season") +
+  labs(x = "Layer", y = "RMSE<br>(μmol kg<sup>-1</sup>)", colour = "Season") +
   ps5_theme
 
 # Assemble
@@ -864,8 +866,8 @@ rsquares %>%
   #filter(cv_type == "spatial") %>% 
   group_by(resp) %>% 
   summarise(
-    mean = mean(rsq),
-    sd = sd(rsq)
+    mean = mean(rmse),
+    sd = sd(rmse)
   )
 
 rsquares %>% 
@@ -874,8 +876,8 @@ rsquares %>%
   filter(cv_type == "spatial") %>% 
   group_by(resp) %>% 
   summarise(
-    mean = mean(rmse),
-    sd = sd(rmse)
+    mean = mean(rsq),
+    sd = sd(rsq)
   )
 
 rsquares %>% 
@@ -1246,7 +1248,8 @@ n_pdp <- 3 # number of pdp for each layer
 ps11_theme <- theme(
   axis.title.x = element_blank(), 
   strip.placement = "outside",
-  text = element_text(size = 8)
+  text = element_text(size = 8),
+  axis.title.y = element_markdown()
 )
 ps11_facet <- facet_wrap(~var_name, scales = "free_x", strip.position = "bottom")
 
@@ -1256,7 +1259,7 @@ ps11_facet <- facet_wrap(~var_name, scales = "free_x", strip.position = "bottom"
 vars_surf <- vip_surf_ann %>% 
   filter(variable != "other") %>% 
   group_by(cv_type, variable) %>% 
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>% 
+  summarise(dropout_loss = mean(diff_loss), .groups = "drop") %>% 
   arrange(desc(dropout_loss)) %>% 
   slice(1:n_pdp)
 
@@ -1276,7 +1279,7 @@ ps11a <- pdp_surf %>%
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
-  labs(y = "Predicted log(DOC)") +
+  labs(y = "Predicted log(DOC)<br>(μmol kg<sup>-1</sup>)") +
   ps11_facet +
   ps11_theme
 
@@ -1286,7 +1289,7 @@ ps11a <- pdp_surf %>%
 vars_epi <- vip_epi_ann %>% 
   filter(variable != "other") %>% 
   group_by(cv_type, variable) %>% 
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>% 
+  summarise(dropout_loss = mean(diff_loss), .groups = "drop") %>% 
   arrange(desc(dropout_loss)) %>% 
   slice(1:n_pdp)
 
@@ -1306,7 +1309,7 @@ ps11b <- pdp_epi %>%
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
-  labs(y = "Predicted log(DOC)") +
+  labs(y = "Predicted log(DOC)<br>(μmol kg<sup>-1</sup>)") +
   ps11_facet +
   ps11_theme
 
@@ -1316,7 +1319,7 @@ ps11b <- pdp_epi %>%
 vars_meso <- vip_meso_ann %>% 
   filter(variable != "other") %>% 
   group_by(cv_type, variable) %>% 
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>% 
+  summarise(dropout_loss = mean(diff_loss), .groups = "drop") %>% 
   arrange(desc(dropout_loss)) %>% 
   slice(1:n_pdp)
 
@@ -1336,7 +1339,7 @@ ps11c <- pdp_meso %>%
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
-  labs(y = "Predicted log(DOC)") +
+  labs(y = "Predicted log(DOC)<br>(μmol kg<sup>-1</sup>)") +
   ps11_facet +
   ps11_theme
 
@@ -1346,7 +1349,7 @@ ps11c <- pdp_meso %>%
 vars_bathy <- vip_bathy_ann %>% 
   filter(variable != "other") %>% 
   group_by(cv_type, variable) %>% 
-  summarise(dropout_loss = mean(dropout_loss), .groups = "drop") %>% 
+  summarise(dropout_loss = mean(diff_loss), .groups = "drop") %>% 
   arrange(desc(dropout_loss)) %>% 
   slice(1:n_pdp)
 
@@ -1366,7 +1369,7 @@ ps11d <- pdp_bathy %>%
   ggplot() +
   geom_path(aes(x = x, y = yhat_loc)) +
   geom_ribbon(aes(x = x, ymin = yhat_loc - yhat_spr, ymax = yhat_loc + yhat_spr), alpha = 0.2) +
-  labs(y = "Predicted log(DOC)") +
+  labs(y = "Predicted log(DOC)<br>(μmol kg<sup>-1</sup>)") +
   ps11_facet +
   ps11_theme
 
@@ -1376,6 +1379,56 @@ ps11
 
 ## Save
 ggsave(file = "figures/figure_s11.png", plot = ps11, width = 188, height = 200, unit = "mm", bg = "white")
+
+
+## S12: Comparison with Nowicki ----
+#--------------------------------------------------------------------------#
+load("data/11.now_comp.Rdata")
+
+
+ps12a_theme <- theme(
+  legend.title = element_markdown(size = 10),
+  text = element_text(size = 9)
+)
+
+ps12b_theme <- theme(
+  axis.title = element_blank(),
+  legend.position = "bottom",
+  legend.title = element_markdown(size = 10),
+  legend.key.width = unit(2.5, "cm"),
+  legend.key.height = unit(2, "mm"),
+  legend.direction = "horizontal",
+  legend.title.position = "top",
+  text = element_text(size = 9)
+)
+
+
+##a: pred VS truth
+ps12a <- ggplot(comp) +
+  geom_bin_2d(aes(x = doc, y = doc_pred), binwidth = 0.1) +
+  geom_abline(slope = 1, intercept = 0, colour = "red") +
+  scale_fill_viridis_c(trans = "log1p") +
+  labs(x = "DOC from biogeoch. model (μmol kg<sup>-1</sup>)", y = "Predicted DOC (μmol kg<sup>-1</sup>)", fill = "Count") +
+  coord_fixed() +
+  theme_classic() +
+  theme(axis.title.x = element_markdown(), axis.title.y = element_markdown()) + 
+  ps12a_theme
+
+##b: map of difference
+ps12b <- ggplot(comp %>% mutate(diff = doc_pred - doc) %>% filter(lon != -1)) +
+  geom_sf(data = grat, alpha = 0.8, color = "gray80", linewidth = 0.2) +
+  geom_tile(aes(x = lon, y = lat, fill = diff, colour = diff)) + 
+  geom_sf(data = world_rob, fill = "gray80", colour = NA) +
+  scale_fill_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027", na.value = NA) +
+  scale_colour_gradient2(low = "#4575b4", mid = "#ffffbf", high = "#d73027", na.value = NA, guide = "none") +
+  coord_sf(crs = '+proj=robin +lon_0=180 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs', default_crs = sf::st_crs(4326), datum = NA) +
+  labs(fill = "DOC difference between ML predictions and biogeochemical model (μmol kg<sup>-1</sup>)") +
+  ps12b_theme
+
+ps12 <- (ps12a + plot_spacer()) / ps12b + plot_layout(heights = c(1, 1.5)) + plot_annotation(tag_levels = "a") 
+
+# Save
+ggsave(file = "figures/figure_s12.png", plot = ps12, width = 180, height = 180, unit = "mm", bg = "white")
 
 
 ## Presentation figure: all 4 layers together ----
@@ -1426,3 +1479,4 @@ pfd <- ggplot(df_2c %>% filter(lon != -0.5))  +
 
 pf <- (pfa + pfb) / (pfc + pfd) + plot_layout(axis_titles = "collect") + plot_annotation(tag_levels = "a") & theme(legend.position = 'bottom')
 pf
+
