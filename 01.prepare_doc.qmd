@@ -91,6 +91,13 @@ df_doc <- df_doc %>%
   )
 ```
 
+Save clean individual observations for future reconstruction of DOC  model output.
+
+```{r save_ind_obs}
+df_doc_obs <- df_doc %>% select(lon, lat, date, press, doc)
+write_csv(df_doc_obs, file = "data/00.df_doc_obs.csv")
+```
+
 ## Log-transformation
 
 Plot distribution of DOC  data.

@@ -8,16 +8,16 @@ format:
     embed-resources: true
 editor: visual
 execute:
-  cache: true
+  cache: false
   warning: false
 ---
 
 ## Set-up and load data
 
 ```{r set-up}
-#|output: false
-#|cache: false
-#|cache.lazy: false
+#| output: false
+#| cache: false
+#| cache.lazy: false
 source("utils.R")
 load("data/07.doc_surf_seas_pred.Rdata")
 ```

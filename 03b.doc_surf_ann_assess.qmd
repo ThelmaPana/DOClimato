@@ -15,8 +15,8 @@ execute:
 ## Set-up and load data
 
 ```{r set-up}
-#|output: false
-#|cache: false
+#| output: false
+#| cache: false
 source("utils.R")
 load("data/03.doc_surf_ann_pred.Rdata")
 ```

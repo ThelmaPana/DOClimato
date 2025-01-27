@@ -15,8 +15,8 @@ execute:
 ## Set-up and load data
 
 ```{r set-up}
-#|output: false
-#|cache: false
+#| output: false
+#| cache: false
 source("utils.R")
 load("data/04.doc_epi_ann_pred.Rdata")
 ```

@@ -2409,28 +2409,6 @@
       "Repository": "RSPM",
       "Hash": "09eb987710984fc2905c7129c7d85e65"
     },
-    "plotpca": {
-      "Package": "plotpca",
-      "Version": "0.1.0",
-      "Source": "GitHub",
-      "RemoteType": "github",
-      "RemoteHost": "api.github.com",
-      "RemoteRepo": "plotpca",
-      "RemoteUsername": "ThelmaPana",
-      "RemoteRef": "HEAD",
-      "RemoteSha": "d1ec532669438c0e5adc793b7c0563f94060e112",
-      "Requirements": [
-        "FactoMineR",
-        "checkmate",
-        "dplyr",
-        "forcats",
-        "ggplot2",
-        "rlang",
-        "stringr",
-        "tibble"
-      ],
-      "Hash": "9a966d344e1b722d86ad814c92e6e8d5"
-    },
     "plotrix": {
       "Package": "plotrix",
       "Version": "3.8-4",

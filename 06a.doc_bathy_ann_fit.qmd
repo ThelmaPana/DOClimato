@@ -1,6 +1,6 @@
 ---
 title: "Predict annual bathypelagic DOC"
-subtitle: "Fit a XGBoost model to predict DOC from environmental data and apply it to new data."
+subtitle: "Fit a BRT model to predict DOC from environmental data and apply it to new data."
 author: "Thelma Panaïotis"
 format:
   html:
@@ -15,8 +15,8 @@ execute:
 ## Set-up and load data
 
 ```{r set_up}
-#|output: false
-#|cache: false
+#| output: false
+#| cache: false
 source("utils.R")
 load("data/02.ann_bathy.Rdata")
 output_filename <- "data/06.doc_bathy_ann_pred.Rdata"
@@ -70,7 +70,7 @@ df_pca <- df_fit %>% select(c(lon, lat, doc_bathy, log_doc_bathy, everything()))
 pca_all <- FactoMineR::PCA(df_pca, quanti.sup = 1:2, scale.unit = TRUE, graph = FALSE)
 
 # Plot eigenvalues
-plot_eig(pca_all)
+#plot_eig(pca_all)
 
 # Plot variables
 plot(pca_all, choix = "var", axes = c(1, 2), cex = 0.7)
@@ -117,7 +117,7 @@ folds <- nested_cv(
 
 ## Model definition
 
-Let’s define a XGBoost regression model, with tunable hyperparameters:
+Let’s define a BRT regression model, with tunable hyperparameters:
 
 -   `trees`: number of trees
 
@@ -128,7 +128,7 @@ Let’s define a XGBoost regression model, with tunable hyperparameters:
 -   `learn_rate`
 
 ```{r def_mod}
-# Define a xgboost model with hyperparameters to tune
+# Define a lightgbm model with hyperparameters to tune
 xgb_spec <- boost_tree(
   trees = tune(),
   tree_depth = tune(),
@@ -206,7 +206,7 @@ res <- lapply(1:nrow(folds), function(i){
 
   ## Prediction on outer folds
   preds <- predict(final_res, new_data = df_test) %>%
-    bind_cols(df_test %>% select(log_doc_bathy))
+    bind_cols(df_test %>% select(log_doc_bathy, lon, lat))
 
   ## Model explainer
   # Select only predictors
@@ -260,6 +260,5 @@ res <- lapply(1:nrow(folds), function(i){
 ## Save results
 
 ```{r save}
-#|cache.lazy: false
 save(res, file = output_filename)
 ```

@@ -15,7 +15,6 @@ library(castr)
 library(fields)
 library(oce)
 library(vegan)
-library(plotpca)
 library(Hmisc)
 library(sf)
 library(spatialsample)
@@ -26,6 +25,7 @@ library(marmap)
 library(cmocean)
 library(chroma)
 library(rnaturalearth)
+library(ggtext)
 
 ## Modeling
 library(tidymodels)
@@ -74,12 +74,6 @@ meso_top <- 200
 meso_bottom <- 1000
 # bathy is anything below meso
 
-## UVP
-# Depth above which to keep UVP objects
-max_depth_uvp <- 1000
-
-# Minimum number of objects in a UVP profile to consider it
-n_min_uvp <- 10
 
 # Number of best predictors to plot partial dependence plots for
 n_pdp <- 3
@@ -339,17 +333,6 @@ ggmap <- function(df, var, type = c("raster", "point"), land = TRUE, palette = N
   return(p)
 }
 
-
-## Preprocess images for morphr ----
-#--------------------------------------------------------------------------#
-# Function to pre-process images
-preprocess <- function(x) {
-  x |>
-    # remove 31 pixels from the bottom (=the scale bar)
-    img_chop(bottom=31) |>
-    # change the gamma to see the light objects better
-    img_adjust_gamma(gamma=0.7)
-}
 
 ## Draw a circle ----
 #--------------------------------------------------------------------------#
